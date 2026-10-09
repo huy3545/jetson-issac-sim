@@ -206,6 +206,22 @@ python -m unittest tests/test_path_qualification.py -v
 python -m unittest discover -s tests -v
 ```
 
+## Motion Planning V1.1 — Experimental Adapter Stage 1
+
+`motion_planning.experimental_adapter.ExperimentalMotionAdapter` là entrypoint thử nghiệm nhận `QualifiedPathResult`. Nó không gọi `MotionPlanner` V1, `SafetyMonitor`, `MachineController`, `main.py` hoặc CSV logging. Output là `MotionHandoffResult` gồm `accepted_segments` và `rejected_segments`, mỗi record giữ riêng segment ID, source ID, source index range, XYZ, frame, units, timestamp, clock domain, qualification/uncertainty status, provenance và diagnostics.
+
+Adapter không ghép mảng Nx3 toàn cục, không nối cuối run này với đầu run khác, không thêm waypoint ở gap, và không tạo speed, C-axis, acceleration, actuator command hay execution authorization.
+
+`strict` chỉ nhận segment `VERIFIED`, uncertainty `KNOWN`, provenance metric hợp lệ và không có diagnostic chặn handoff. `geometry_only` có thể nhận geometry chưa đủ measurement uncertainty để nghiên cứu, nhưng record được đánh dấu `experimental=True`, giữ status uncertainty nguồn và luôn `execution_authorized=False`. Chế độ này không thể nâng dữ liệu thành strict handoff.
+
+Chạy test adapter:
+
+```bash
+.venv/bin/python -m unittest tests/test_experimental_motion_adapter.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
