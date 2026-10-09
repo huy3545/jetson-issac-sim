@@ -167,6 +167,20 @@ python -m unittest discover -s tests -v
 python main.py
 ```
 
+### Advanced & Partial Geometry
+
+`path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
+
+`plan_closed_concentric(inner, outer)` chỉ xác minh annulus tạo bởi hai vòng tròn đồng tâm, kín và không giao nhau. Kết quả không phụ thuộc cyclic starting index. Closed contour không đồng tâm, self-intersection hoặc topology chưa chứng minh được vẫn trả `UNCERTAIN`/`INVALID`; Phase 1B chưa hỗ trợ mọi closed contour hoặc tự chọn seam.
+
+Chạy test Advanced/Partial Geometry:
+
+```bash
+python -m unittest tests/test_advanced_geometry.py -v
+python -m unittest discover -s tests -v
+python main.py
+```
+
 ## Tích hợp Isaac Sim ở V2
 
 Implement adapter thực tế khi chuyển sang máy chạy Isaac Sim 5.1.0:
