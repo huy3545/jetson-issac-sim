@@ -181,6 +181,15 @@ python -m unittest discover -s tests -v
 python main.py
 ```
 
+## PathPlanner V1.1 — Phase 3 Qualification
+
+`path_planning.path_qualification.qualify_surface_segments(...)` produces immutable, provenance-preserving XYZ handoff segments with 3D arc length, tangent, curvature, uncertainty status and quality gates. Strict mode is default: unknown uncertainty or an unconfigured required uncertainty threshold yields `UNCERTAIN`; `geometry_only` is for experiments only. Phase 3 has no speed, C-axis, acceleration or actuator command.
+
+```bash
+python -m unittest tests/test_path_qualification.py -v
+python -m unittest discover -s tests -v
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
