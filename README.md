@@ -238,6 +238,18 @@ Motion V1 đặt speed waypoint đầu/cuối bằng `0.0`; Stage 3 kiểm tra s
 .venv/bin/python main.py
 ```
 
+## Motion Planning V1.1 — Quality Regression Stage 5A
+
+`tests/test_motion_quality_regression.py` là baseline numerical xác định cho Motion V1/V1.1. Test tạo trực tiếp đường thẳng, cung R=1 m và R=0.05 m, S-curve, lấy mẫu không đều, cung đổi Z, cung có nhiễu Gaussian 0.3 mm với seed cố định, segment hai waypoint, XY gần suy biến/chỉ đổi Z, và hai run có gap.
+
+Suite kiểm tra arc length, tangent/C-axis giải tích trên cung, unwrap, curvature nội bộ bằng estimator circumcircle độc lập, sai lệch endpoint của finite difference, speed cap, lateral cap với tolerance số học `2e-6 m/s²`, ràng buộc gia tốc rời rạc, finite targets, boundary speed và provenance/run isolation. Đây là regression numerical, không phải physical validation hay trajectory timing. Không thêm smoothing, resampling, timing hoặc jerk limiting vào Motion V1.
+
+```bash
+.venv/bin/python -m unittest tests/test_motion_quality_regression.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
