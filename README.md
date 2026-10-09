@@ -148,6 +148,20 @@ python -m unittest discover -s tests -v
 
 Fixture và threshold khóa nằm tại `tests/fixtures/phase1a_open_channels.json` và `tests/phase1a_thresholds.py`; hash manifest nằm ngoài thư mục test ở `phase1a_fixture_hashes.json`.
 
+### Legacy geometry hardening (experimental)
+
+`path_planning.legacy_geometry_gate.LegacyGeometryGate` là preflight opt-in cho input hai boundary của Legacy `PathPlanner`; nó không thay đổi `PathPlanner.plan()` hay `main.py`, không tự fallback sang Phase 1A và không cấp execution authorization. Gate kiểm tra finite coordinates, point count, degenerate segment, self-intersection của boundary/channel và endpoint correspondence. Nó canonicalize direction trước topology check nên reversed hoặc swapped boundary hợp lệ không bị reject sai.
+
+Kết quả `REJECT` áp dụng cho invalid topology hoặc reference deviation vượt threshold. `UNCERTAIN` áp dụng khi thiếu metric metadata, verified topology/correspondence evidence, reference centerline hoặc reference threshold. `ACCEPT` chỉ có nghĩa là open-channel contract đã được xác minh trong phạm vi gate; không chứng minh Motion/Safety authorization hoặc full-path Phase 1A coverage.
+
+`tests/test_legacy_path_geometry_benchmarks.py` khóa attribution của Legacy theo các bước independent resampling, same-index pairing, midpoint, moving average và RGB-D projection. Tight/S curves với pixel hoàn hảo vẫn được ghi nhận có deviation lớn; test này không làm Legacy V1 im lặng nhận geometry đó là verified.
+
+```bash
+.venv/bin/python -m unittest tests/test_legacy_geometry_gate.py tests/test_legacy_path_geometry_benchmarks.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ## PathPlanner V1.1 — Phase 1B
 
 `path_planning/vision_adapter.py` là cầu nối experimental từ `VisionResult` sang solver planar Phase 1a. Nó không thay đổi `PathPlanner.plan()` V1, compatibility mode, Motion Planning hoặc Machine Controller.
