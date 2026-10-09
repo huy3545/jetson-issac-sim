@@ -148,6 +148,25 @@ python -m unittest discover -s tests -v
 
 Fixture và threshold khóa nằm tại `tests/fixtures/phase1a_open_channels.json` và `tests/phase1a_thresholds.py`; hash manifest nằm ngoài thư mục test ở `phase1a_fixture_hashes.json`.
 
+## PathPlanner V1.1 — Phase 1B
+
+`path_planning/vision_adapter.py` là cầu nối experimental từ `VisionResult` sang solver planar Phase 1a. Nó không thay đổi `PathPlanner.plan()` V1, compatibility mode, Motion Planning hoặc Machine Controller.
+
+Adapter chỉ nhận hai boundary đã `OBSERVED`, `TRACKING`, `verified=True`, đủ confidence, không có prediction uncertainty/gap, depth hợp lệ, timestamp hợp lệ và không mơ hồ danh tính. Geometry phải có `units="m"` và coordinate frame tham chiếu đã xác minh; adapter không tự tạo camera-to-cutter transform, và vì thế từ chối input pixel/camera frame. Predicted, expired, lost, gapped, ambiguous, crossing hoặc touching boundary đều trả `REJECTED` kèm reason code.
+
+Closed contour được nhận diện và từ chối rõ ràng với `CLOSED_CONTOUR_UNSUPPORTED` trong Phase 1B hiện tại. Đây là hành vi bảo thủ vì Phase 1a chỉ đã được kiểm chứng cho open channel; không tự mở contour kín tại một seam tùy ý.
+
+Chạy test Phase 1B:
+
+```bash
+python -m unittest tests/test_vision_path_adapter.py -v
+python -m unittest tests/test_phase1a_preflight.py -v
+python -m unittest tests/test_planar_medial_axis.py -v
+python -m unittest tests/test_vision_runtime.py -v
+python -m unittest discover -s tests -v
+python main.py
+```
+
 ## Tích hợp Isaac Sim ở V2
 
 Implement adapter thực tế khi chuyển sang máy chạy Isaac Sim 5.1.0:
