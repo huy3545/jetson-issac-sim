@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "units": "metres",
+  "cases": [
+    {
+      "id": "parallel_open",
+      "kind": "parallel",
+      "left": [[0.0, -0.05], [1.0, -0.05]],
+      "right": [[0.0, 0.05], [1.0, 0.05]],
+      "reference_centerline": [[0.0, 0.0], [1.0, 0.0]],
+      "reference_coverage_interval": [0.0, 1.0],
+      "expected_status": "CONVERGED"
+    },
+    {
+      "id": "concentric_arc_open",
+      "kind": "concentric_arc",
+      "r1": 0.45,
+      "r2": 0.55,
+      "angle_start_rad": -0.8,
+      "angle_end_rad": 0.8,
+      "samples": 161,
+      "reference_radius": 0.5,
+      "reference_coverage_interval": [-0.8, 0.8],
+      "expected_status": "CONVERGED"
+    },
+    {
+      "id": "crossing_boundaries",
+      "kind": "reject",
+      "left": [[0.0, -0.05], [1.0, 0.05]],
+      "right": [[0.0, 0.05], [1.0, -0.05]],
+      "expected_status": "INVALID_GEOMETRY"
+    }
+  ],
+  "mutation_detection_plan": {
+    "skip_postprojection": "concentric_arc_open",
+    "skip_inside_channel": "crossing_boundaries",
+    "skip_continuity": "parallel_open",
+    "first_multiple_root": "crossing_boundaries",
+    "vertex_distance": "concentric_arc_open",
+    "loose_residual": "concentric_arc_open"
+  }
+}
