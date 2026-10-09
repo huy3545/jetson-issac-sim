@@ -6,6 +6,9 @@ from .advanced_geometry import GeometrySegment, GeometryStatus
 
 class SurfaceStatus(str, Enum): VERIFIED="VERIFIED"; INVALID="INVALID"; UNCERTAIN="UNCERTAIN"
 @dataclass(frozen=True)
+class SourceProvenance:
+    source_id:str; coordinate_frame:str|None; units:str|None; timestamp:float|None; clock_domain:str|None; uncertainty_status:str="UNKNOWN"
+@dataclass(frozen=True)
 class MetricHeightmap:
     z: np.ndarray; origin_xy: tuple[float,float]; spacing_xy: tuple[float,float]
     coordinate_frame: str; units: str; timestamp: float; clock_domain: str="simulation"
@@ -13,9 +16,11 @@ class MetricHeightmap:
 @dataclass(frozen=True)
 class SurfaceSegment:
     source_id:int; xyz:np.ndarray; status:SurfaceStatus; input_range:tuple[int,int]; reason_codes:tuple[str,...]=()
+    segment_id:str|None=None; run_id:int=0; source_indices:tuple[int,int]|None=None; coordinate_frame:str|None=None; units:str|None=None; timestamp:float|None=None; clock_domain:str|None=None; surface_uncertainty:float|None=None; uncertainty_status:str="UNKNOWN"; provenance:SourceProvenance|None=None
 @dataclass(frozen=True)
 class SurfaceMappingResult:
     segments:tuple[SurfaceSegment,...]; reason_codes:tuple[str,...]=()
+    xy_provenance:SourceProvenance|None=None; surface_provenance:SourceProvenance|None=None; output_coordinate_frame:str|None=None; output_units:str|None=None
 
 class SurfaceMapper:
  def __init__(self, experimental_max_uncertainty=None, experimental_stale_ms=250.): self.max_uncertainty=experimental_max_uncertainty;self.stale=experimental_stale_ms/1000
@@ -33,21 +38,29 @@ class SurfaceMapper:
    unc=float(h.uncertainty) if np.ndim(h.uncertainty)==0 else float(np.max(np.asarray(h.uncertainty)[[j,j,j+1,j+1],[i,i+1,i,i+1]]))
    if self.max_uncertainty is not None and unc>self.max_uncertainty:return None,'SURFACE_UNCERTAINTY_EXCEEDED'
   return value,None
- def map_segments(self,segments,heightmap,frame,timestamp,clock_domain='simulation'):
-  if frame!=heightmap.coordinate_frame:return SurfaceMappingResult((),('SURFACE_FRAME_MISMATCH',))
-  if clock_domain!=heightmap.clock_domain or abs(timestamp-heightmap.timestamp)>self.stale:return SurfaceMappingResult((),('SURFACE_TIMESTAMP_MISMATCH',))
+ def map_segments(self,segments,heightmap,frame,timestamp,clock_domain='simulation',xy_provenance=None):
+  surface_provenance=SourceProvenance('heightmap',heightmap.coordinate_frame,heightmap.units,heightmap.timestamp,heightmap.clock_domain,'KNOWN' if heightmap.uncertainty is not None else 'UNKNOWN')
+  if frame!=heightmap.coordinate_frame:return SurfaceMappingResult((),('SURFACE_FRAME_MISMATCH',),xy_provenance,surface_provenance,heightmap.coordinate_frame,heightmap.units)
+  if clock_domain!=heightmap.clock_domain or abs(timestamp-heightmap.timestamp)>self.stale:return SurfaceMappingResult((),('SURFACE_TIMESTAMP_MISMATCH',),xy_provenance,surface_provenance,heightmap.coordinate_frame,heightmap.units)
+  if xy_provenance is not None and (xy_provenance.coordinate_frame!=frame or xy_provenance.units!='m' or xy_provenance.clock_domain!=clock_domain or xy_provenance.timestamp!=timestamp):
+   return SurfaceMappingResult((),('XY_PROVENANCE_MISMATCH',),xy_provenance,surface_provenance,heightmap.coordinate_frame,heightmap.units)
   out=[]
   for segment in segments:
    if segment.status is not GeometryStatus.VERIFIED or segment.solver_result is None:
-    out.append(SurfaceSegment(segment.segment_id,np.empty((0,3)),SurfaceStatus.INVALID,segment.input_range,('UNVERIFIED_GEOMETRY',)));continue
-   xy=segment.solver_result.segments[0].xy; runs=[]; current=[]; reasons=[]
-   for p in xy:
+    out.append(SurfaceSegment(segment.segment_id,np.empty((0,3)),SurfaceStatus.INVALID,segment.input_range,('UNVERIFIED_GEOMETRY',),f'{segment.segment_id}:0',0,segment.input_range,heightmap.coordinate_frame,heightmap.units,heightmap.timestamp,heightmap.clock_domain,None,surface_provenance.uncertainty_status,surface_provenance));continue
+   xy=segment.solver_result.segments[0].xy; runs=[]; current=[]; start=None; reasons=[]
+   for point_index,p in enumerate(xy):
     value,reason=self._sample(heightmap,p)
-    if reason is None: current.append([p[0],p[1],value])
+    if reason is None:
+     if start is None:start=point_index
+     current.append([p[0],p[1],value])
     else:
      reasons.append(reason)
-     if len(current)>=2:runs.append(np.array(current));current=[]
-   if len(current)>=2:runs.append(np.array(current))
-   if not runs:out.append(SurfaceSegment(segment.segment_id,np.empty((0,3)),SurfaceStatus.INVALID,segment.input_range,tuple(sorted(set(reasons)))));continue
-   for k,xyz in enumerate(runs):out.append(SurfaceSegment(segment.segment_id,xyz,SurfaceStatus.VERIFIED,segment.input_range,('PARTIAL_SURFACE_MAPPING',) if reasons else ()))
-  return SurfaceMappingResult(tuple(out))
+     if len(current)>=2:runs.append((np.array(current),start,point_index))
+     current=[];start=None
+   if len(current)>=2:runs.append((np.array(current),start,len(xy)))
+   if not runs:out.append(SurfaceSegment(segment.segment_id,np.empty((0,3)),SurfaceStatus.INVALID,segment.input_range,tuple(sorted(set(reasons))),f'{segment.segment_id}:0',0,segment.input_range,heightmap.coordinate_frame,heightmap.units,heightmap.timestamp,heightmap.clock_domain,None,surface_provenance.uncertainty_status,surface_provenance));continue
+   for k,(xyz,run_start,run_end) in enumerate(runs):
+    indices=(segment.input_range[0]+run_start,segment.input_range[0]+run_end)
+    out.append(SurfaceSegment(segment.segment_id,xyz,SurfaceStatus.VERIFIED,segment.input_range,('PARTIAL_SURFACE_MAPPING',) if reasons else (),f'{segment.segment_id}:{k}',k,indices,heightmap.coordinate_frame,heightmap.units,heightmap.timestamp,heightmap.clock_domain,None,'UNKNOWN',surface_provenance))
+  return SurfaceMappingResult(tuple(out),(),xy_provenance,surface_provenance,heightmap.coordinate_frame,heightmap.units)

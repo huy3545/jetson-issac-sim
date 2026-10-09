@@ -173,6 +173,12 @@ python main.py
 
 `SurfaceMapper.map_segments(...)` giữ nguyên source segment ID và không nối qua missing surface samples; thay vào đó trả nhiều `SurfaceSegment` độc lập với `PARTIAL_SURFACE_MAPPING`. Phase 2 không thêm cutting offset, không tính motion, và không tự tạo camera-to-cutter transform. Registered depth vẫn unsupported khi chưa có projection/extrinsic adapter được kiểm chứng.
 
+### Provenance hardening Phase 2 → Phase 3
+
+`MetricHeightmap` là nguồn provenance surface. `SurfaceMappingResult` hiện giữ độc lập provenance của XY (`xy_provenance`) và heightmap (`surface_provenance`); mỗi `SurfaceSegment` giữ stable `segment_id`, `run_id`, `source_indices`, frame, units, timestamp và clock domain có nguồn gốc từ heightmap. Khi mapping bị chia bởi missing samples, mỗi run có input range riêng và không bị nối lại.
+
+Đối số frame/time của mapper và qualifier là **ràng buộc kỳ vọng**: mismatch với metadata nguồn trả diagnostics và không thể tạo `VERIFIED`. `qualify_surface_segments` không dùng metadata caller hay tham số `uncertainty` cũ để nâng cấp kết quả. Uncertainty Z-only từ heightmap vẫn là `UNKNOWN` cho XYZ; strict handoff yêu cầu uncertainty XYZ đã xác minh và threshold được cấu hình. `geometry_only` chỉ dành cho kiểm thử hình học.
+
 Chạy test Phase 2:
 
 ```bash
@@ -186,6 +192,14 @@ python main.py
 `path_planning.path_qualification.qualify_surface_segments(...)` produces immutable, provenance-preserving XYZ handoff segments with 3D arc length, tangent, curvature, uncertainty status and quality gates. Strict mode is default: unknown uncertainty or an unconfigured required uncertainty threshold yields `UNCERTAIN`; `geometry_only` is for experiments only. Phase 3 has no speed, C-axis, acceleration or actuator command.
 
 Qualified arrays are defensive copies marked read-only. `source_id`, child ID, input range, coordinate frame, units, timestamp and clock domain remain in every handoff segment. Invalid source geometry, invalid provenance, duplicate points, step/Z-jump violations or non-finite uncertainty cannot become `VERIFIED`.
+
+Kiểm tra provenance end-to-end:
+
+```bash
+.venv/bin/python -m unittest tests/test_surface_mapping.py tests/test_path_qualification.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
 
 ```bash
 python -m unittest tests/test_path_qualification.py -v
