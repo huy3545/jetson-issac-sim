@@ -185,6 +185,8 @@ python main.py
 
 `path_planning.path_qualification.qualify_surface_segments(...)` produces immutable, provenance-preserving XYZ handoff segments with 3D arc length, tangent, curvature, uncertainty status and quality gates. Strict mode is default: unknown uncertainty or an unconfigured required uncertainty threshold yields `UNCERTAIN`; `geometry_only` is for experiments only. Phase 3 has no speed, C-axis, acceleration or actuator command.
 
+Qualified arrays are defensive copies marked read-only. `source_id`, child ID, input range, coordinate frame, units, timestamp and clock domain remain in every handoff segment. Invalid source geometry, invalid provenance, duplicate points, step/Z-jump violations or non-finite uncertainty cannot become `VERIFIED`.
+
 ```bash
 python -m unittest tests/test_path_qualification.py -v
 python -m unittest discover -s tests -v
