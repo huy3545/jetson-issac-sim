@@ -264,6 +264,20 @@ Suite kiểm tra arc length, tangent/C-axis giải tích trên cung, unwrap, cur
 .venv/bin/python main.py
 ```
 
+## Path Planning V1.1 — Experimental Geometry-Gated Entrypoint Stage 5F
+
+`path_planning.experimental_geometry_entrypoint.ExperimentalGeometryEntrypoint` is an opt-in research entrypoint around the unchanged Legacy `PathPlanner`. It evaluates `LegacyGeometryGate` on metric boundaries first. Only a gate result of `ACCEPT` can invoke the Legacy benchmark; `REJECT` and `UNCERTAIN` return their diagnostics with `benchmark_status=NOT_RUN` and never call the planner.
+
+The benchmark requires a separate, explicit `LegacyBenchmarkContext`: pixel boundaries, finite positive registered depth, `CameraCalibration`, matching source/timestamp/clock-domain metadata, and declared mapping provenance. The entrypoint never infers a pixel-to-metric transform, calibration, uncertainty, or evidence. Synthetic fixtures must set `synthetic=True` and still declare the mapping provenance.
+
+`ExperimentalGeometryResult` preserves the gate result, source metadata snapshots and diagnostics. Its output path is a defensive read-only copy. It is always marked `experimental=True` and `execution_authorized=False`; an `ACCEPT` therefore permits only a research benchmark, never machine execution. It imports no Phase 1A/1B fallback, Motion, Safety, Controller, `main.py`, or CSV logging.
+
+```bash
+.venv/bin/python -m unittest tests/test_experimental_geometry_entrypoint.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
