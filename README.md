@@ -278,6 +278,20 @@ The benchmark requires a separate, explicit `LegacyBenchmarkContext`: pixel boun
 .venv/bin/python main.py
 ```
 
+## Vision V1.1 — Experimental Metric Projection Stage 6B
+
+`path_planning.experimental_metric_projection.ExperimentalVisionMetricProjectionAdapter` projects two admissible Vision V1.1 pixel boundaries to reference-frame XYZ without modifying the Legacy `PathPlanner`. It requires `TransformEvidence`: named camera/reference frames, calibration and transform IDs/versions/sources/timestamps, source identity, clock domain, units, a rigid 4×4 transform, and an explicit validity label. The adapter validates the homogeneous row, finite translation, SO(3) orthonormality and determinant `+1` (default tolerance `1e-8`). Reflection, scale, shear and invalid homogeneous transforms are rejected.
+
+Admission requires both lines to be `OBSERVED`, `TRACKING`, Vision-verified, finite, non-ambiguous and gap-free with a true depth-valid mask for every original sample. It preserves those samples without resampling, rejects invalid/zero/missing registered depth and never extrapolates outside the depth image. Vision frame/timestamp/domain/frame ID and `camera_to_reference` must match the supplied evidence exactly.
+
+Projection uses the existing pinhole equation and bilinear registered-depth semantics. Numerical success creates immutable XYZ segments but always returns `UNCERTAIN` with `UNKNOWN` uncertainty in Stage 6B. A synthetic or caller-labelled `VERIFIED` transform is not independent calibration evidence, so the adapter never emits metric `VERIFIED`, `KNOWN` uncertainty or execution authorization.
+
+```bash
+.venv/bin/python -m unittest tests/test_experimental_metric_projection.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
