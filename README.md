@@ -110,6 +110,29 @@ x_actual,y_actual,z_actual,c_actual,tracking_error
 
 `python -m unittest discover -s tests -v` chạy V1 end-to-end, CSV, safety, golden regression và các contract Checkpoint 1. Test dùng `unittest` chuẩn, không cần dependency thêm. Các case `INVALID` là kết quả mong đợi và test phải pass.
 
+## PathPlanner V1.1 — Phase 1a
+
+`path_planning/planar_medial_axis.py` là solver XY độc lập cho một kênh hở, sạch, tạo bởi hai polyline biên. Nó không thay đổi `PathPlanner.plan()` V1 và chưa tạo path 3D, không đọc depth, không điều khiển Motion/Controller.
+
+Solver kiểm tra input hữu hạn, số vertex, zero-length segment, tự giao, giao/chạm hai biên; ghép hướng biên theo hình học; dựng polygon kênh; dùng khoảng cách point-to-segment, bisection có bracket để hiệu chỉnh điểm về khoảng cách đều; tái lấy mẫu, chiếu lại và hậu kiểm residual, góc A–P–B, inside-channel và continuity. Kết quả có `SolverResult`, `SolverSegment`, `SolverDiagnostics`, `width_m`, reason code và thống kê số lần gọi distance.
+
+Các ngưỡng Phase 1a nằm trong `PlanarMedialAxisConfig`. Các trường `experimental_*` chỉ là giá trị mô phỏng/nghiên cứu, không phải giới hạn an toàn hoặc thông số máy thật. Solver bảo thủ: khi hậu kiểm không đạt sẽ trả `NOT_CONVERGED` hoặc `INVALID_GEOMETRY`, không trả `CONVERGED` cho điểm chưa xác minh.
+
+Chạy riêng test Phase 1a:
+
+```bash
+python -m unittest tests/test_phase1a_preflight.py -v
+python -m unittest tests/test_planar_medial_axis.py -v
+```
+
+Chạy toàn bộ regression sau thay đổi:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Fixture và threshold khóa nằm tại `tests/fixtures/phase1a_open_channels.json` và `tests/phase1a_thresholds.py`; hash manifest nằm ngoài thư mục test ở `phase1a_fixture_hashes.json`.
+
 ## Tích hợp Isaac Sim ở V2
 
 Implement adapter thực tế khi chuyển sang máy chạy Isaac Sim 5.1.0:
