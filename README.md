@@ -222,6 +222,22 @@ Chạy test adapter:
 .venv/bin/python main.py
 ```
 
+## Motion Planning V1.1 — SegmentMotionPlanner Stage 3
+
+`motion_planning.segment_motion_planner.SegmentMotionPlanner` là wrapper experimental gọi lại nguyên `MotionPlanner.plan()` V1 cho **từng** `MotionHandoffSegment` strict. API `plan(MotionHandoffResult) -> SegmentMotionPlanningResult` trả các `planned_segments` và `rejected_segments` riêng biệt; không gộp XYZ, không thêm waypoint ở gap và không tạo transition giữa các run.
+
+`PlannedMotionSegment` giữ segment/source ID, source index range, frame, units, timestamp, clock domain, qualification/uncertainty status, source provenance, diagnostics và target list bất biến. Target là defensive copy của output V1, còn provenance chỉ được giữ ở cấp segment. Kết quả luôn `experimental=True` và `execution_authorized=False`.
+
+Wrapper chỉ nhận `HandoffMode.STRICT`, status `VERIFIED`, uncertainty `KNOWN`, provenance metric hợp lệ và segment không có diagnostic. Geometry-only, unknown uncertainty, INVALID/UNCERTAIN, duplicate, NaN/Inf và XY tangent degenerate đều bị từ chối theo từng run mà không ảnh hưởng run hợp lệ khác.
+
+Motion V1 đặt speed waypoint đầu/cuối bằng `0.0`; Stage 3 kiểm tra số học policy này sau mỗi lần gọi V1, đồng thời kiểm tra target count, finite fields, speed không âm và XYZ output khớp input. Nếu các kiểm tra này thất bại, segment bị reject; wrapper không tự sửa speed hay thêm waypoint.
+
+```bash
+.venv/bin/python -m unittest tests/test_segment_motion_planner.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
