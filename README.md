@@ -167,6 +167,20 @@ python -m unittest discover -s tests -v
 python main.py
 ```
 
+## PathPlanner V1.1 — Phase 2 Surface Mapping
+
+`path_planning.surface_mapping` ánh xạ `GeometrySegment` đã VERIFIED sang XYZ bằng `MetricHeightmap`. Heightmap phải có origin/grid spacing metric, coordinate frame, units `m`, timestamp, clock domain và optional validity mask/uncertainty. Bilinear sampling chỉ tạo điểm VERIFIED khi đủ bốn ô hợp lệ; NaN, invalid mask, out-of-bounds, mismatch frame/time hoặc uncertainty vượt ngưỡng đều bị từ chối.
+
+`SurfaceMapper.map_segments(...)` giữ nguyên source segment ID và không nối qua missing surface samples; thay vào đó trả nhiều `SurfaceSegment` độc lập với `PARTIAL_SURFACE_MAPPING`. Phase 2 không thêm cutting offset, không tính motion, và không tự tạo camera-to-cutter transform. Registered depth vẫn unsupported khi chưa có projection/extrinsic adapter được kiểm chứng.
+
+Chạy test Phase 2:
+
+```bash
+python -m unittest tests/test_surface_mapping.py -v
+python -m unittest discover -s tests -v
+python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
