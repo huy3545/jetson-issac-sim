@@ -1,0 +1,1 @@
+Ảnh RGB và depth test được sinh bằng TestDataSource khi chạy main.py. straight_rgb.png/curve_rgb.png là ảnh, *_depth.npy chứa depth mét. Camera intrinsics/extrinsics được khai báo trong data_source.py.
