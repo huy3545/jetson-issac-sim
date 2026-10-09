@@ -35,6 +35,10 @@ class RGBDFrame:
     rgb_timestamp: float | None = None
     depth_timestamp: float | None = None
     rgb_depth_registered: bool = True
+    coordinate_frame: str = "camera"
+    occlusion_mask: np.ndarray | None = None
+    wheel_state: dict | None = None
+    fabric_movement_uncertainty: float | None = None
 
 class RGBDDataSource(Protocol):
     def read(self) -> RGBDFrame:

@@ -18,6 +18,13 @@ class VisionConfig:
     experimental_watchdog_stale_ms: float = 500.0
     experimental_depth_min_valid_ratio: float = 0.95
     experimental_depth_resample_points: int = 100
+    experimental_roi_margin_px: int = 40
+    experimental_roi_prediction_expansion_px: int = 30
+    experimental_roi_min_size_px: int = 96
+    experimental_min_line_separation_px: float = 20.0
+    experimental_max_line_separation_px: float = 180.0
+    experimental_blur_laplacian_min: float = 4.0
+    experimental_min_observation_confidence: float = 0.45
 
 @dataclass(frozen=True)
 class PathConfig:

@@ -46,6 +46,21 @@ Các foundation đã có:
 
 Các ngưỡng bắt đầu bằng `experimental_` trong `VisionConfig` chỉ dành cho mô phỏng/nghiên cứu, không phải thông số an toàn đã xác nhận của máy thật.
 
+### Experimental Vision runtime
+
+`vision.runtime.ExperimentalVisionRuntime` là adapter stateful riêng; nó không thay đổi `VisionProcessor.process(rgb)` hoặc compatibility mode. Adapter nhận `RGBDFrame` có timestamp tăng dần và RGB-D registered, sau đó thực hiện contrast normalization, ROI động, full-frame reacquisition, tracking riêng từng line, confidence, prediction ngắn hạn và hard expiry.
+
+`VisionResult` và `LineVisionResult` phân biệt rõ `OBSERVED`, `OCCLUDED` và `INVALID`. Một predicted line luôn có `verified=False`; khi hết hạn, `points=None`, vì vậy không thể được dùng như cutting geometry hợp lệ. Contract cũng mang `frame_id`, coordinate frame, camera transform, depth validity, missing ranges, contour type, occlusion status và optional fabric-movement uncertainty.
+
+Camera-to-world transform tiếp tục thuộc `CameraCalibration` và Path Planning. Camera-to-cutter/tool transform động cần một transform adapter theo scene/machine state ở giai đoạn tích hợp Isaac Sim, không nằm trong segmentation runtime. Wheel state, occlusion mask và fabric-movement uncertainty hiện là metadata đầu vào; runtime không tự suy ra vải đã trượt nếu không có mask hoặc feedback mô phỏng.
+
+Chạy test Vision runtime experimental:
+
+```bash
+python -m unittest tests/test_vision_runtime.py -v
+python -m unittest discover -s tests -v
+```
+
 ### Golden regression V1
 
 Fixture immutable cho kịch bản V1 đường thẳng nằm ở `tests/fixtures/v1_golden_straight.json`; hash được giữ riêng trong `tests/fixtures/v1_golden_straight.sha256`. Fixture có 100 target, snapshot config, metadata môi trường và path-validity. Golden regression kiểm tra integrity SHA-256 trước khi so target với sai số số thực nhỏ.
