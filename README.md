@@ -292,6 +292,21 @@ Projection uses the existing pinhole equation and bilinear registered-depth sema
 .venv/bin/python main.py
 ```
 
+## Vision V1.1 — Calibration Evidence & Trust Stage 6C
+
+`path_planning.calibration_evidence.CalibrationEvidence` records calibration identity, camera/frame metadata, intrinsic/extrinsic references, source/method/timestamp, optional artifact reference/digest and validation metadata. `CalibrationEvidenceValidator` returns one of `SYNTHETIC`, `DECLARED`, `EVIDENCE_VALIDATED` or `INVALID`. `EVIDENCE_VALIDATED` proves only that supplied artifact bytes match the supplied digest and validation metadata is complete; it does not prove physical calibration accuracy.
+
+`CalibrationTrustedProjectionAdapter` is an opt-in wrapper around Stage 6B. It checks calibration evidence against `TransformEvidence` before calling the unchanged projection adapter. Missing IDs, malformed/mismatched artifact digests, failed validation claims, frame/unit/clock/source or intrinsic/extrinsic-reference mismatches return `INVALID` and do not produce a metric result. Caller metadata alone remains `DECLARED`, even if it self-labels as validated.
+
+Every permitted projection remains experimental, non-executable and `UNCERTAIN` with `UNKNOWN` XYZ uncertainty. Synthetic evidence cannot be mixed with a non-synthetic transform. The module does not read artifacts, infer evidence, call Legacy PathPlanner, Motion, Safety, Controller or logging.
+
+```bash
+.venv/bin/python -m unittest tests/test_calibration_evidence.py -v
+.venv/bin/python -m unittest tests/test_experimental_metric_projection.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
