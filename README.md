@@ -307,6 +307,20 @@ Every permitted projection remains experimental, non-executable and `UNCERTAIN` 
 .venv/bin/python main.py
 ```
 
+## Vision V1.1 — Experimental XYZ Uncertainty Stage 6D
+
+`path_planning.xyz_uncertainty.ExperimentalXYZUncertaintyPropagator` is an opt-in layer after Stage 6B/6C admission. `UncertaintyEvidence` defines covariance ordering: pixel `[u,v]`, intrinsics `[fx,fy,cx,cy]`, registered-depth neighbourhood `[z00,z10,z01,z11]`, and extrinsics `[tx,ty,tz,rx,ry,rz]`. Block-diagonal propagation is permitted only when `zero_cross_covariance_confirmed=True`; correlated depth samples use `wᵀΣdepthw` with actual bilinear weights.
+
+It uses the analytic pinhole Jacobian and a left/reference-frame SE(3) perturbation convention: `T'=Exp([δt,δθ])T`, `δp_ref=δt+δθ×p_ref`, with extrinsic Jacobian `[I,-skew(p_ref)]`. All covariance inputs must be finite, symmetric and PSD. Invalid or missing covariance is rejected; it is never replaced by zero.
+
+Only synthetic evidence produces `MODELLED_SYNTHETIC` covariance. This numerical model still returns geometry `UNCERTAIN`, uncertainty `UNKNOWN`, `experimental=True` and `execution_authorized=False`; it is not calibrated sensor uncertainty and cannot enable strict planning.
+
+```bash
+.venv/bin/python -m unittest tests/test_xyz_uncertainty.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
