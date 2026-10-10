@@ -33,4 +33,12 @@ class UncertaintyArtifactTests(unittest.TestCase):
   import path_planning.uncertainty_artifact as m
   with open(m.__file__) as f:s=f.read()
   for forbidden in ('from motion_planning','from safety','from machine_controller','from data_logger','from .path_planner'):self.assertNotIn(forbidden,s)
+ def test_nesting_negative_eigenvalue_and_reference_mismatch_are_explicitly_rejected(self):
+  nested={};current=nested
+  for _ in range(20):current['x']={};current=current['x']
+  self.assertEqual(UncertaintyArtifactIngestor(max_nesting=4).ingest(json.dumps(nested).encode()).trust,ArtifactTrust.INVALID)
+  blocks=self.document()['covariance_blocks'];blocks['pixel']=[[1,0],[0,-1]]
+  self.assertEqual(self.ingest(self.document(covariance_blocks=blocks)).trust,ArtifactTrust.INVALID)
+  self.assertEqual(self.ingest(self.document(reference_frame='wrong'),reference_frame='workpiece_m').trust,ArtifactTrust.INVALID)
+  self.assertEqual(self.ingest(self.document(calibration_evidence_reference='wrong'),calibration_evidence_reference='cal@v1').trust,ArtifactTrust.INVALID)
 if __name__=='__main__':unittest.main()

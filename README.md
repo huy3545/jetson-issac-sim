@@ -333,6 +333,18 @@ The artifact carries fixed Stage 6D variable ordering and PSD covariance blocks 
 .venv/bin/python main.py
 ```
 
+## Vision V1.1 — Experimental Full Covariance Stage 6H
+
+`path_planning.full_covariance` adds a separate `1.1-full-covariance` artifact schema with canonical 16-variable ordering `[u,v,z00,z10,z01,z11,fx,fy,cx,cy,tx,ty,tz,rx,ry,rz]`. A full 16×16 matrix must be finite, symmetric and PSD; named Stage 6D blocks must exactly match its diagonal submatrices. No eigenvalue clipping, symmetrisation or implicit zero cross-block fill is performed.
+
+`ExperimentalFullCovariancePropagator` uses `JΣfullJᵀ` once with a 3×16 Jacobian assembled from the Stage 6D pinhole, bilinear-depth and left-perturbation extrinsic Jacobians. It accepts only `PROVIDED_CROSS_COVARIANCE` artifacts with a numerical full matrix and correlation provenance. Output remains immutable, experimental, non-executable, `UNCERTAIN` and `UNKNOWN`; valid structure or digest never proves calibrated sensor uncertainty.
+
+```bash
+.venv/bin/python -m unittest tests/test_full_covariance.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
