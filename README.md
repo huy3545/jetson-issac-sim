@@ -321,6 +321,18 @@ Only synthetic evidence produces `MODELLED_SYNTHETIC` covariance. This numerical
 .venv/bin/python main.py
 ```
 
+## Vision V1.1 — Uncertainty Evidence Ingestion Stage 6F
+
+`path_planning.uncertainty_artifact.UncertaintyArtifactIngestor` accepts bounded raw JSON bytes and validates a versioned uncertainty artifact without reading artifact paths. SHA-256 is calculated over the exact original bytes before parsing. A matching caller-provided digest yields `EVIDENCE_VALIDATED`; valid metadata without a digest remains `DECLARED`. Neither state proves empirical sensor accuracy.
+
+The artifact carries fixed Stage 6D variable ordering and PSD covariance blocks for pixel, registered depth, intrinsics and extrinsics. It also preserves correlation metadata. Only `EXPLICIT_ZERO_ASSUMPTION` with a named source maps to `UncertaintyEvidence`; `UNKNOWN` is not propagated and `PROVIDED_CROSS_COVARIANCE` is retained but marked unsupported because Stage 6D has no cross-block propagation. Every result remains experimental and non-executable.
+
+```bash
+.venv/bin/python -m unittest tests/test_uncertainty_artifact.py -v
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.
