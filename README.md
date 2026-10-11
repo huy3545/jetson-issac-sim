@@ -411,4 +411,80 @@ Structured audit logging mặc định là in-memory và passive: lỗi sink ch�
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-1A — Contract Validation Fixes
+
+`integration.validation.ProvenanceResolver` là strict validator đệ quy cho `PointProvenance`. Điểm quan sát gốc dùng `derivation_method=OBSERVATION` và không có parent giả. Điểm derived phải giải quyết được toàn bộ `source_point_ids`; source thiếu trả `SOURCE_PROVENANCE_UNRESOLVED`, source `PREDICTED`/`UNKNOWN` bị từ chối, run không khớp trả `SOURCE_RUN_MISMATCH` và cycle trả `PROVENANCE_CYCLE`. Validator không tin riêng nhãn của điểm đầu ra và không thay đổi provenance để hợp thức hóa admission.
+
+`CompatibilityValidator` kiểm tra run/frame/time, clock domain, coordinate frame, units, calibration/transform, config version và segment identity. Timestamp khác nhau chỉ được chấp nhận khi caller cung cấp chính sách đồng bộ hữu hạn rõ ràng; không có tolerance thì trả `FRAME_TIME_MISMATCH`. `PointProvenance`, motion timing và integration records cũng từ chối bool tại numeric fields, tuple nested sai cấu trúc, enum/schema không hỗ trợ và execution authorization.
+
+```bash
+.venv/bin/python -m unittest tests/test_integration_validation.py -v
+.venv/bin/python -m unittest tests/test_integration_contract_hardening.py -v
+.venv/bin/python -m unittest tests/test_experimental_integration.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
+## Stage 7B-1b — Remaining Contract Integrity
+
+Stage 7B-1b siết integrity mà không thay solver hoặc Legacy V1. `ProvenanceResolver` yêu cầu dictionary key đúng bằng `PointProvenance.point_id`, kiểm tra compatibility của từng cạnh trong lineage và hỗ trợ timestamp tolerance chỉ khi caller khai báo chính sách sync hữu hạn. `ProvenanceMerger` là helper production cho interpolation, resampling, smoothing, midpoint và coordinate transform: nó giữ toàn bộ source references, chặn source predicted/unknown hoặc metadata không tương thích, và tạo derived point với confidence/uncertainty `UNKNOWN` thay vì tự nâng trust.
+
+Contracts từ chối `ACCEPTED` có rejection reason, bool tại identifier/numeric fields, uncertainty enum lạ, nested run/event sai run-correlation và final status trái với record `BLOCKED`. Motion timestamp đơn lẻ không chứng minh timing readiness; khi không có duration, `MotionTimingRecord` trả `TIMING_UNSPECIFIED`.
+
+Không có mutation framework dependency trong repository. Test `test_contract_integrity.py` dùng mutation cases độc lập: cố tạo accepted record có rejection reason và resolver registry có key khác `point_id`; cả hai phải bị production guard từ chối.
+
+```bash
+.venv/bin/python -m unittest tests/test_contract_integrity.py -v
+.venv/bin/python -m unittest tests/test_integration_validation.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
+## Stage 7B-2 — Independent SafetyDecision & Immutable Plans
+
+`integration.independent_safety` thêm `PathPlan` và `MotionPlan` immutable cho nghiên cứu. Mảng XYZ được defensive-copy thành read-only; `content_hash` là SHA-256 trên canonical serialization gồm coordinates và metadata quan trọng, không phải Python `hash()` hoặc chỉ ID. `MotionPlan.source_path_hash` phải khớp PathPlan thực tế, mỗi target giữ reference tới point path, và timing thiếu duration trả `TIMING_UNSPECIFIED`.
+
+`IndependentSafetyValidator` không dùng `SafetyMonitor` V1, không tin planner status và không import Controller. Nó tự kiểm tra run/correlation, path hash, lineage provenance, calibration/transform, qualification/uncertainty, gaps, frame/domain/units, target order, timing và giới hạn `SyntheticMachineLimits`. Mọi `SafetyDecision` đều `execution_authorized=False`; `ACCEPTED` chỉ nghĩa là đạt kiểm tra mô phỏng Stage 7B-2, không phải quyền điều khiển máy.
+
+`apply_boundary_veto` chặn downstream khi upstream hoặc SafetyDecision không `ACCEPTED`. Audit sink là passive; lỗi sink chuyển decision thành `BLOCKED` với `EVIDENCE_INCOMPLETE`, không cấp authorization. Stage này chưa mở Vision→Phase 3 bridge, không gọi MachineController và không triển khai execution mock.
+
+```bash
+.venv/bin/python -m unittest tests/test_independent_safety.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
+## Stage 7B-2A — Independent Safety Boundary Hardening
+
+`SyntheticMachineState` thay thế evidence machine-state kiểu tự do. Contract immutable này bắt buộc run/correlation/frame/time/clock domain, configuration identity, giá trị simulation hữu hạn, evidence status và `real_accuracy_claim="NONE"`. Object rỗng hoặc arbitrary object không còn được Safety chấp nhận là evidence.
+
+`apply_boundary_veto(..., protected=True, path=..., motion=..., limits=...)` bắt buộc `SafetyDecision` còn phù hợp tại boundary Safety→Mock Control: decision phải `ACCEPTED` và khớp run/correlation, path/motion IDs và hashes, cùng safety config version. Thiếu, stale hoặc unrelated decision đều `BLOCKED`. Boundary không được safety-protected vẫn có thể hoạt động với upstream acceptance theo contract cũ.
+
+`PathPlan` và `MotionPlan` lưu NumPy XYZ trong immutable bytes-backed buffers. Caller array, direct attribute, view và thử `setflags(write=True)` không thể sửa plan hoặc làm hash không còn đúng. Safety cũng kiểm tra metadata point/path, timing target index/path/segment, provenance reference, plan config và machine-state identity/domain/configuration.
+
+```bash
+.venv/bin/python -m unittest tests/test_safety_boundary_hardening.py -v
+.venv/bin/python -m unittest tests/test_independent_safety.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
+## Stage 7B-3 — FSM, Coordinator & Structured Audit
+
+`integration.coordinator.IntegrationCoordinator` là entrypoint experimental độc lập với `main.py`. FSM dùng bảng transition cố định: `IDLE → SCAN → PREVIEW → CONFIRM → CUT`; lỗi evidence chuyển `HOLD`, và `HOLD`/`FAULT` chỉ về `IDLE` qua reset có audit. `CUT` chỉ là trạng thái logic mô phỏng, không phát target, không gọi Controller và `execution_authorized` luôn `False`.
+
+Boundary registry cố định gồm `vision-path`, `path-motion`, `motion-safety` và `safety-simulation-cut`; boundary cuối luôn protected. Coordinator dùng `IndependentSafetyValidator` và `apply_boundary_veto`, không tự tạo SafetyDecision. Timestamp khác chỉ được chấp nhận khi có `SynchronizationPolicy` versioned; nếu không có bằng chứng sync, kết quả vào `HOLD` với `MACHINE_STATE_TIME_UNVERIFIED`.
+
+`CoordinatorAuditEvent` giữ thứ tự deterministic, FSM states, contract hashes, safety reference, reason codes và audit completeness. Audit sink failure dẫn đến `HOLD` với evidence incomplete, không crash Legacy V1.
+
+Stage 7B-3A sửa audit consistency: mọi event ghi đúng `TransitionResult.previous` và `next`; lỗi audit ở SCAN, PREVIEW, CONFIRM hoặc CUT đều đưa FSM về `HOLD`, đặt `audit_complete=False` và không thể trả `ACCEPTED`. Reset cũng có event bắt buộc; nếu sink reset lỗi, FSM giữ trạng thái cũ và trả `EVIDENCE_INCOMPLETE`.
+
+`SynchronizationPolicy(version, max_delta_s)` chỉ là **giả định timing synthetic đã khai báo trong test**, không phải bằng chứng synchronization độc lập của camera/machine thật. Nếu timestamp khác nhau mà không có policy rõ ràng, coordinator trả `MACHINE_STATE_TIME_UNVERIFIED` và giữ `HOLD`.
+
+```bash
+.venv/bin/python -m unittest tests/test_integration_coordinator.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim

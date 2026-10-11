@@ -5,7 +5,7 @@ from integration.contracts import (
     AdmissionStatus, ConfigurationKind, ConfidenceStatus, DerivationMethod,
     INTEGRATION_SCHEMA_VERSION, IntegrationRecord, MotionTimingRecord,
     PointProvenance, ProvenanceObservationStatus, SyntheticConfiguration,
-    TimingStatus,
+    TimingStatus, UncertaintyStatus,
 )
 from tests.golden_stage7b1_contracts import GOLDEN_CASES
 
@@ -15,7 +15,7 @@ def point(**changes):
         source_run_id="run-0", source_frame_id="frame-0", segment_id="segment-0",
         observation_status=ProvenanceObservationStatus.OBSERVED,
         confidence_status=ConfidenceStatus.VERIFIED, confidence_value=.8,
-        uncertainty_status="KNOWN", timestamp=1., clock_domain="simulation",
+        uncertainty_status=UncertaintyStatus.KNOWN, timestamp=1., clock_domain="simulation",
         coordinate_frame="workpiece_m", units="m", calibration_id="cal-0",
         transform_id="transform-0", config_version="cfg-0",
         derivation_method=DerivationMethod.MIDPOINT)
@@ -44,7 +44,7 @@ class ContractHardeningTests(unittest.TestCase):
     def test_missing_unknown_and_predicted_sources_fail_strict_without_upgrade(self):
         missing = point(calibration_id=None)
         self.assertIn(GOLDEN_CASES["missing_provenance"][1][0], missing.strict_reason_codes())
-        unknown = point(confidence_status=ConfidenceStatus.UNKNOWN, uncertainty_status="UNKNOWN")
+        unknown = point(confidence_status=ConfidenceStatus.UNKNOWN, confidence_value=None, uncertainty_status=UncertaintyStatus.UNKNOWN)
         self.assertIn(GOLDEN_CASES["unknown_confidence"][1][0], unknown.strict_reason_codes())
         predicted = point(derivation_method=DerivationMethod.RESAMPLING)
         self.assertIn(GOLDEN_CASES["predicted_source"][1][0], predicted.strict_reason_codes((ProvenanceObservationStatus.PREDICTED,)))
