@@ -233,6 +233,18 @@ Gate A6-90 là proof synthetic; Gate A6-REFLEX và Gate A6-TURNBACK vẫn BLOCKE
 .venv/bin/python main.py
 ```
 
+## Stage 7D-1 — Six-Module End-to-End Dry Run
+
+`integration/six_module_dry_run.py` là entrypoint experimental tạo đúng sáu record theo thứ tự: Vision, Path, Motion, Safety, Machine Control Simulation và Data Logging. Mỗi record giữ `schema_version`, run/correlation identity, frame/time/clock, frame/units, source path/segment IDs, provenance, confidence, uncertainty, geometry/admission status, reason codes và luôn `execution_authorized=False`.
+
+Fixture square-miter 90° có thể đạt `SYNTHETIC_GEOMETRY_VERIFIED` ở Path, nhưng record Path vẫn `BLOCKED` bởi `STRICT_GATE_B_BLOCKED`, `CALIBRATION_UNVERIFIED` và `XYZ_UNCERTAINTY_UNKNOWN`. Motion không tạo target, Safety giữ veto, Machine Control Simulation chỉ ghi passive blocked boundary và không import `MachineController`. Audit sink ghi cả sáu stage; audit failure trả `AUDIT_LOGGING_FAILED` và `audit_complete=False`. Entry point không thay đổi `main.py` hoặc CSV logging V1.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7d1_six_module_dry_run.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7c5_corner_aware_centerline.py -v
 .venv/bin/python -m unittest tests/test_stage7c4_two_line_geometry.py -v
