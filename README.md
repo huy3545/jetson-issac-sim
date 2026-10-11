@@ -249,6 +249,17 @@ Stage 7D-1B tách public `VisionPathAdapter.validate_observation(...)` khỏi Pa
 .venv/bin/python main.py
 ```
 
+## Stage 7D-2 — Read-Only Isaac Geometry Preview
+
+`integration.isaac_preview_adapter` is a separate consumer of a Stage 7D-1 trace and the original `VisionResult`; it does not add a seventh execution module. It reuses `VisionPathAdapter` and the existing corner-aware solver to produce a JSON-safe `IsaacPreviewArtifact` only for the narrow `stage7c6-square-miter-90` synthetic fixture. The artifact contains metric XY boundaries, the solver centerline, run/frame/time identities, diagnostics and an explicit display-only mapping `[x,y] → [x,y,z_preview]` with USD Z-up, scale `1.0` stage units per metre and `z_preview_m=0`.
+
+Preview authorization only permits visual display. It does not verify calibration, camera-to-machine transforms, XYZ uncertainty or cutting feasibility: Gate B remains BLOCKED and `execution_authorized=false`. Reflex, turnback, crossing, non-finite, unobserved or unsupported-frame/unit inputs have no verified centerline. `simulation.isaac_preview_renderer` imports `pxr` lazily and writes only `/World/JetsonPreview` when a caller supplies a disposable USD stage; normal tests run without Isaac Sim. Offline JSON export success is therefore not proof of an Isaac Sim runtime render.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
+.venv/bin/python -m unittest discover -s tests -q
+```
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7c5_corner_aware_centerline.py -v
 .venv/bin/python -m unittest tests/test_stage7c4_two_line_geometry.py -v
