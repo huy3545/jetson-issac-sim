@@ -382,4 +382,18 @@ Implement adapter thực tế khi chuyển sang máy chạy Isaac Sim 5.1.0:
 V1 không chứa API Isaac Sim giả hoặc import simulator. Adapter V2 cần bổ sung lịch step/synchronization, polling feedback theo thời gian, theo dõi sai số, stop/cancel backend và semantics tốc độ trước khi điều khiển scene. `send_target` hiện là contract đồng bộ; speed là feedrate target, chưa phải trajectory định thời hoặc mô hình motor.
 
 Giới hạn V1: yêu cầu hai đường xanh tách rời, không xử lý nhánh/giao nhau/tắc khuất; correspondence theo arc length không giải quyết đường có chiều dài khác biệt lớn; moving-average là smoothing nhẹ, chưa bảo đảm đường cắt nằm trong corridor; không có collision detection hay kiểm chứng động lực học của máy. Camera calibration và offset dụng cụ cần xác định ở V2.
+
+## Stage 7B — Experimental Integration Contract & Observability
+
+`integration.experimental_harness.ExperimentalIntegrationHarness` là entrypoint nghiên cứu độc lập với `main.py`. Nó tạo các `IntegrationRecord` bất biến cùng `IntegrationEvent` cho Vision, Path, bridge Vision→Phase 3, Motion và Safety assessment. Mọi record giữ `run_id`, `correlation_id`, stage, frame/time/frame-domain, coordinate frame, units, config version, provenance references, confidence, geometry/uncertainty/qualification status và reason codes khi dữ liệu nguồn có chúng.
+
+Harness gọi `VisionPathAdapter`, `ExperimentalMotionAdapter` và `SegmentMotionPlanner` theo public contract hiện có. Nó không tạo geometry thay thế cho dữ liệu bị từ chối và đánh dấu bridge Vision→Phase 3 là `BLOCKED` vì repository chưa có contract chứng minh `VisionPathResult` và `QualifiedPathResult` cùng source run. `ExperimentalSafetyAssessment` là đánh giá fail-closed độc lập, không thay đổi `SafetyMonitor` V1, luôn từ chối execution ở Stage 7B. Module không import hoặc gọi `MachineController`, hardware backend hay CSV logger V1.
+
+Structured audit logging mặc định là in-memory và passive: lỗi sink chỉ đặt `audit_complete=False` cùng event `AUDIT_LOGGING_FAILED`; không được biến quyết định stage thành thành công. Mọi kết quả Stage 7B vẫn có `execution_authorized=False`.
+
+```bash
+.venv/bin/python -m unittest tests/test_experimental_integration.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim
