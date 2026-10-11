@@ -255,6 +255,8 @@ Stage 7D-1B tách public `VisionPathAdapter.validate_observation(...)` khỏi Pa
 
 Preview authorization only permits visual display. It does not verify calibration, camera-to-machine transforms, XYZ uncertainty or cutting feasibility: Gate B remains BLOCKED and `execution_authorized=false`. Reflex, turnback, crossing, non-finite, unobserved or unsupported-frame/unit inputs have no verified centerline. `simulation.isaac_preview_renderer` imports `pxr` lazily and writes only `/World/JetsonPreview` when a caller supplies a disposable USD stage; normal tests run without Isaac Sim. Offline JSON export success is therefore not proof of an Isaac Sim runtime render.
 
+Stage 7D-2A treats JSON as untrusted transport data. `IsaacPreviewEvidenceAdapter.validate(...)` independently cross-checks the six-record trace, canonical Stage 7C-6 square-miter boundaries, public solver result, centerline samples, point validity and Gate-B-only Path blocking before producing a runtime-only validation result for the renderer. `preview_authorized` in JSON is never sufficient. Artifact arrays are tuples, transform metadata is immutable, and `to_dict()` returns a detached copy. The USD renderer requires the validation result, checks stage Z-up and meters-per-unit before any mutation, and stays inside `/World/JetsonPreview`. Offline validation is not an Isaac runtime qualification.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
 .venv/bin/python -m unittest discover -s tests -q

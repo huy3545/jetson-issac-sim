@@ -5,7 +5,7 @@ import json
 import numpy as np
 
 from integration.isaac_preview_adapter import IsaacPreviewEvidenceAdapter
-from integration.isaac_preview_contracts import IsaacPreviewArtifact
+from integration.isaac_preview_contracts import IsaacPreviewArtifact, PreviewValidationResult
 from integration.six_module_dry_run import SixModuleDryRunHarness
 from simulation.isaac_preview_renderer import display_xyz
 from vision.contracts import (LineVisionResult, ObservationStatus, OrientationSource,
@@ -41,6 +41,24 @@ class IsaacPreviewTests(unittest.TestCase):
         self.assertEqual(restored.centerline_xy,artifact.centerline_xy)
         raw=json.loads(artifact.to_json()); raw["left_boundary_xy"][0][0]=float("nan")
         with self.assertRaises(ValueError): IsaacPreviewArtifact.from_json(json.dumps(raw))
+
+    def test_untrusted_json_requires_independent_validation(self):
+        artifact,trace=self._build(); raw=json.loads(artifact.to_json())
+        raw["centerline_xy"]=[[9.,9.],[10.,10.]]; raw["preview_authorized"]=True
+        forged=IsaacPreviewArtifact.from_json(json.dumps(raw))
+        result=IsaacPreviewEvidenceAdapter().validate(forged,self._vision(),trace)
+        self.assertFalse(result.valid); self.assertFalse(result.renderer_authorized)
+        self.assertIn("CENTERLINE_SOLVER_MISMATCH",result.reason_codes)
+
+    def test_validation_accepts_only_canonical_fixture_and_trace(self):
+        artifact,trace=self._build(); checked=IsaacPreviewEvidenceAdapter().validate(artifact,self._vision(),trace)
+        self.assertTrue(checked.valid); self.assertTrue(checked.renderer_authorized)
+        raw=artifact.to_dict(); raw["left_boundary_xy"][0][0]=.01
+        altered=IsaacPreviewArtifact.from_json(json.dumps(raw)); rejected=IsaacPreviewEvidenceAdapter().validate(altered,self._vision(),trace)
+        self.assertFalse(rejected.valid); self.assertIn("CANONICAL_FIXTURE_MISMATCH",rejected.reason_codes)
+        with self.assertRaises(TypeError): artifact.display_transform["z_preview_m"]=3.
+        exported=artifact.to_dict(); exported["display_transform"]["z_preview_m"]=3.
+        self.assertEqual(artifact.display_transform["z_preview_m"],0.)
 
     def test_rejected_geometry_has_no_verified_centerline(self):
         reflex=self._vision(right=np.array([[0.,-.1],[.5,-.1],[.5,-.2]])); artifact,_=self._build(reflex)
