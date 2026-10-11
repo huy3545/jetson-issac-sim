@@ -37,13 +37,26 @@ class VisionPathAdapter:
             if line.point_provenance is None or not all(point.lineage_available for point in line.point_provenance):
                 reasons.append(f"{name}_POINT_PROVENANCE_UNAVAILABLE")
         return reasons
-    def plan(self, vision: VisionResult)->VisionPathResult:
+    def validate_observation(self, vision: VisionResult) -> tuple[str, ...]:
+        """Return input-admission reasons without evaluating boundary geometry.
+
+        This public contract is shared by integrations that need to distinguish
+        an invalid observation from a later solver/topology rejection.  It does
+        not manufacture metric, calibration, or provenance evidence.
+        """
+        if not isinstance(vision, VisionResult):
+            return ("INVALID_VISION_RESULT",)
         reasons=[]
         if vision.frame_timestamp is None: reasons.append("MISSING_TIMESTAMP")
         if not vision.time_sync_valid: reasons.append("TIME_SYNC_INVALID")
         if vision.units!="m": reasons.append("UNITS_NOT_METRIC")
         if vision.coordinate_frame in ("", "camera", "legacy"): reasons.append("COORDINATE_FRAME_UNVERIFIED")
         reasons += self._validate(vision.left,"LEFT") + self._validate(vision.right,"RIGHT")
+        return tuple(sorted(set(reasons)))
+    def plan(self, vision: VisionResult)->VisionPathResult:
+        if not isinstance(vision, VisionResult):
+            return VisionPathResult(VisionPathStatus.REJECTED,None,("INVALID_VISION_RESULT",),None,None,"unknown")
+        reasons=list(self.validate_observation(vision))
         if not reasons:
             # Independent conservative boundary-contact gate before the Phase 1a solver.
             for point in np.vstack((vision.left.points,vision.right.points)):

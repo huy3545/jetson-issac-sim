@@ -241,6 +241,8 @@ Trace giữ `schema_version`, run/correlation identity, frame/time/clock, coordi
 
 Dependency propagation giữ nguyên nguyên nhân: Path `BLOCKED` làm Motion `BLOCKED`; Path `REJECTED`/`SKIPPED` làm downstream `SKIPPED`; upstream error không thể thành success. Pipeline có precedence `ERROR > REJECTED > BLOCKED > SKIPPED`. `Data Logging=ACCEPTED` chỉ có nghĩa audit sink xác nhận từng `emit`, không có nghĩa pipeline accepted hoặc dữ liệu đã bền vững trên đĩa. `audit_write_status`, `records_attempted`, `records_confirmed` và `audit_complete` phân biệt zero, partial và complete acknowledgement. Audit failure luôn trả `AUDIT_LOGGING_FAILED`, `final_status=ERROR`, trong khi in-memory result vẫn đủ sáu records. Legacy CSV logging và `main.py` không bị thay đổi.
 
+Stage 7D-1B tách public `VisionPathAdapter.validate_observation(...)` khỏi Path geometry evaluation. Vision preflight chỉ kiểm tra evidence/admission của quan sát; sau khi preflight đạt, Path mới sở hữu mọi solver, topology và geometry diagnostic. Vì vậy một reason code geometry mới vẫn nằm ở Path `REJECTED`, không thể bị suy diễn thành Vision `REJECTED`. Motion, Safety và Machine Control Simulation vẫn passive boundaries; Gate B strict tiếp tục `BLOCKED` và `execution_authorized=False`.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d1_six_module_dry_run.py -v
 .venv/bin/python -m unittest discover -s tests -q

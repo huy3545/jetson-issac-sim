@@ -6,6 +6,9 @@ import numpy as np
 
 from integration.six_module_dry_run import (AuditWriteStatus, DryRunStatus,
                                              InMemorySixModuleAuditSink, SixModuleDryRunHarness)
+from path_planning.planar_medial_axis import (PlanarMedialAxisConfig, SolverDiagnostics,
+                                               SolverResult, SolverStatus)
+from path_planning.vision_adapter import VisionPathAdapter
 from vision.contracts import (LineVisionResult, ObservationStatus, OrientationSource,
                               PointDerivationMethod, TrackingState,
                               VisionPointProvenance, VisionResult)
@@ -20,6 +23,14 @@ class FailingAfterSink:
     def emit(self, record):
         if len(self.records) >= self.successful_writes: raise RuntimeError("chosen write failure")
         self.records.append(record)
+
+
+class UnknownGeometrySolver:
+    def __init__(self): self.calls=0; self.config=PlanarMedialAxisConfig()
+    def solve(self, left, right):
+        self.calls += 1
+        return SolverResult((),SolverStatus.INVALID_GEOMETRY,False,
+                            SolverDiagnostics(excluded=("NEW_GEOMETRY_FAILURE_CODE",)))
 
 
 class SixModuleDryRunTests(unittest.TestCase):
@@ -147,6 +158,35 @@ class SixModuleDryRunTests(unittest.TestCase):
         self.assertEqual(result.records[0].status,DryRunStatus.ERROR)
         self.assertEqual(result.final_status,DryRunStatus.ERROR)
         self.assertEqual(result.records_confirmed,6)
+
+    def test_public_preflight_separates_observation_from_geometry(self):
+        adapter=VisionPathAdapter(require_point_provenance=True)
+        self.assertEqual(adapter.validate_observation(self._vision()),())
+        invalid=self._vision(left=replace(self._vision().left,tracking_state=TrackingState.LOST))
+        self.assertIn("LEFT_NOT_TRACKING",adapter.validate_observation(invalid))
+        solver=UnknownGeometrySolver()
+        harness=SixModuleDryRunHarness()
+        harness.path_adapter=VisionPathAdapter(solver=solver,require_point_provenance=True)
+        result=harness.run(self._vision(),run_id="geometry-run",correlation_id="geometry-corr")
+        self.assertEqual(solver.calls,1)
+        self.assertEqual(tuple(item.stage_id for item in result.records),SixModuleDryRunHarness.ORDER)
+        self.assertEqual(result.records[0].status,DryRunStatus.ACCEPTED)
+        self.assertNotIn("NEW_GEOMETRY_FAILURE_CODE",result.records[0].reason_codes)
+        self.assertEqual(result.records[1].status,DryRunStatus.REJECTED)
+        self.assertIn("NEW_GEOMETRY_FAILURE_CODE",result.records[1].reason_codes)
+        self.assertEqual(result.records[2].status,DryRunStatus.SKIPPED)
+        self.assertEqual(result.records[-1].status,DryRunStatus.ACCEPTED)
+        self.assertEqual(result.final_status,DryRunStatus.REJECTED)
+        self.assertTrue(all(not item.execution_authorized for item in result.records))
+
+    def test_invalid_preflight_does_not_invoke_solver(self):
+        solver=UnknownGeometrySolver(); harness=SixModuleDryRunHarness()
+        harness.path_adapter=VisionPathAdapter(solver=solver,require_point_provenance=True)
+        invalid=self._vision(left=replace(self._vision().left,tracking_state=TrackingState.PREDICTING))
+        result=harness.run(invalid,run_id="invalid-run",correlation_id="invalid-corr")
+        self.assertEqual(solver.calls,0)
+        self.assertEqual(result.records[0].status,DryRunStatus.REJECTED)
+        self.assertEqual(result.records[1].status,DryRunStatus.SKIPPED)
 
 
 if __name__=="__main__": unittest.main()

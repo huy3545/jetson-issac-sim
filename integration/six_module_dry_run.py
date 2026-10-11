@@ -68,8 +68,6 @@ class InMemorySixModuleAuditSink:
 class SixModuleDryRunHarness:
     """Trace Vision→Path→Motion→Safety→Control simulation→Audit fail-closed."""
     ORDER = ("vision", "path", "motion", "safety", "machine_control_simulation", "data_logging")
-    _GEOMETRY_REASONS = {"BOUNDARY_INTERSECTION", "BOUNDARY_TOUCH", "SELF_INTERSECTION", "REFLEX_ORIENTATION_UNPROVEN", "TURNBACK_UNSUPPORTED", "AMBIGUOUS_CORNER_CORRESPONDENCE", "CORNER_MEDIAL_AXIS_UNVERIFIED"}
-
     def __init__(self, audit_sink=None):
         self.audit_sink = audit_sink or InMemorySixModuleAuditSink()
         self.path_adapter = VisionPathAdapter(solver=CornerAwareTwoLineSolver(), require_point_provenance=True)
@@ -81,18 +79,23 @@ class SixModuleDryRunHarness:
         identity, metadata_reasons = self._identity(calibration_id, transform_id, uncertainty_status, config_version)
         confidence, provenance = self._confidence(vision), self._provenance(vision)
         try:
-            path_result = self.path_adapter.plan(vision)
-            adapter_reasons = tuple(path_result.reason_codes)
+            preflight_reasons = self.path_adapter.validate_observation(vision)
         except (TypeError, ValueError, AttributeError) as exc:
             return self._finish([self._record(run_id, correlation_id, "vision", DryRunStatus.ERROR, vision, ("VISION_ADAPTER_ERROR",), confidence=confidence, provenance=provenance, diagnostics=(type(exc).__name__,), **identity)], run_id, correlation_id, vision=vision, identity=identity, confidence=confidence, provenance=provenance)
-        vision_reasons = self._vision_reasons(vision, adapter_reasons, expected_frame_id, expected_timestamp, expected_clock_domain) + tuple(metadata_reasons)
+        vision_reasons = self._vision_reasons(vision, preflight_reasons, expected_frame_id, expected_timestamp, expected_clock_domain) + tuple(metadata_reasons)
         vision_status = DryRunStatus.ACCEPTED if not vision_reasons else DryRunStatus.REJECTED
-        records = [self._record(run_id, correlation_id, "vision", vision_status, vision, self._unique(vision_reasons), confidence=confidence, provenance=provenance, geometry_status="OBSERVED" if vision_status is DryRunStatus.ACCEPTED else "UNTRUSTED", diagnostics=adapter_reasons, **identity)]
+        records = [self._record(run_id, correlation_id, "vision", vision_status, vision, self._unique(vision_reasons), confidence=confidence, provenance=provenance, geometry_status="OBSERVED" if vision_status is DryRunStatus.ACCEPTED else "UNTRUSTED", diagnostics=preflight_reasons, **identity)]
         if vision_status is not DryRunStatus.ACCEPTED:
-            path_record = self._record(run_id, correlation_id, "path", DryRunStatus.SKIPPED, vision, ("VISION_DEPENDENCY_REJECTED", records[0].reason_codes[0]), confidence=confidence, provenance=provenance, geometry_status="UNAVAILABLE", diagnostics=adapter_reasons, **identity)
-        elif path_result.status is not VisionPathStatus.VERIFIED:
-            path_record = self._record(run_id, correlation_id, "path", DryRunStatus.REJECTED, vision, adapter_reasons or ("PATH_GEOMETRY_REJECTED",), confidence=confidence, provenance=provenance, geometry_status="REJECTED", diagnostics=self._solver_diagnostics(path_result), **identity)
+            path_record = self._record(run_id, correlation_id, "path", DryRunStatus.SKIPPED, vision, ("VISION_DEPENDENCY_REJECTED", records[0].reason_codes[0]), confidence=confidence, provenance=provenance, geometry_status="UNAVAILABLE", diagnostics=preflight_reasons, **identity)
         else:
+            try:
+                path_result = self.path_adapter.plan(vision)
+            except (TypeError, ValueError, AttributeError) as exc:
+                path_result = None
+                path_record = self._record(run_id, correlation_id, "path", DryRunStatus.ERROR, vision, ("PATH_ADAPTER_ERROR",), confidence=confidence, provenance=provenance, geometry_status="ERROR", diagnostics=(type(exc).__name__,), **identity)
+        if vision_status is DryRunStatus.ACCEPTED and path_result is not None and path_result.status is not VisionPathStatus.VERIFIED:
+            path_record = self._record(run_id, correlation_id, "path", DryRunStatus.REJECTED, vision, path_result.reason_codes or ("PATH_GEOMETRY_REJECTED",), confidence=confidence, provenance=provenance, geometry_status="REJECTED", diagnostics=self._solver_diagnostics(path_result), **identity)
+        elif vision_status is DryRunStatus.ACCEPTED and path_result is not None:
             # VisionPathResult publishes no trustworthy path/segment ID; leave those fields unavailable.
             path_record = self._record(run_id, correlation_id, "path", DryRunStatus.BLOCKED, vision, ("STRICT_GATE_B_BLOCKED", "CALIBRATION_UNVERIFIED", "TRANSFORM_UNVERIFIED", "XYZ_UNCERTAINTY_UNKNOWN"), confidence=confidence, provenance=provenance, geometry_status="SYNTHETIC_GEOMETRY_VERIFIED", diagnostics=self._solver_diagnostics(path_result), **identity)
         records.append(path_record)
@@ -165,8 +168,8 @@ class SixModuleDryRunHarness:
         else: uncertainty_evidence = "DECLARED_UNVERIFIED" if uncertainty_status == "KNOWN" else uncertainty_status
         if not isinstance(config_version, str) or not config_version: reasons.append("INVALID_CONFIG_VERSION"); config_version = None
         return ({"calibration_id": calibration_id, "transform_id": transform_id, "uncertainty_status": uncertainty_status, "config_version": config_version, "calibration_evidence_status": calibration_status, "transform_evidence_status": transform_status, "uncertainty_evidence_status": uncertainty_evidence}, tuple(reasons))
-    def _vision_reasons(self, vision, adapter_reasons, expected_frame_id, expected_timestamp, expected_clock_domain):
-        reasons = [reason for reason in adapter_reasons if reason not in self._GEOMETRY_REASONS]
+    def _vision_reasons(self, vision, preflight_reasons, expected_frame_id, expected_timestamp, expected_clock_domain):
+        reasons = list(preflight_reasons)
         if expected_frame_id is not None and vision.frame_id != expected_frame_id: reasons.append("SOURCE_FRAME_ID_MISMATCH")
         if expected_timestamp is not None and vision.frame_timestamp != expected_timestamp: reasons.append("TIMESTAMP_MISMATCH")
         if expected_clock_domain is not None and vision.frame_clock_domain != expected_clock_domain: reasons.append("CLOCK_DOMAIN_MISMATCH")
