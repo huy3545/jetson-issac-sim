@@ -396,4 +396,19 @@ Structured audit logging mặc định là in-memory và passive: lỗi sink ch�
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-1 — Versioned Contracts & Point-Level Provenance
+
+`integration.contracts` là nguồn định nghĩa duy nhất cho schema experimental `1.1`. `IntegrationRecord`, `IntegrationEvent` và `IntegrationRunResult` mang `schema_version`; schema chưa hỗ trợ, enum không thuộc contract, identifier sai định dạng, số không hữu hạn và `execution_authorized=True` đều bị từ chối khi khởi tạo. Trường thiếu vẫn có thể được biểu diễn để ghi nhận failure, nhưng strict admission phải trả reason code thay vì tự điền giá trị.
+
+`PointProvenance` bất biến giữ `point_id`, toàn bộ `source_point_ids`, run/frame/segment identity, observation/confidence/uncertainty status, frame/time, calibration/transform identity và `derivation_method`. Các phương thức như interpolation, resampling, smoothing, midpoint hoặc coordinate transform phải giữ references đến mọi điểm nguồn. Strict policy từ chối `PREDICTED`, confidence `UNKNOWN`, uncertainty không `KNOWN`, hoặc metadata bắt buộc thiếu; không có trust upgrade ngầm.
+
+`MotionTimingRecord` mô tả target order, segment/path identity, frame/units, speed và C-axis. Khi thiếu timestamp lẫn duration, nó trả `TIMING_UNSPECIFIED`; Stage 7B-1 không suy ra thời gian từ speed. `SyntheticConfiguration` buộc camera/calibration/transform simulation có identity rõ ràng, luôn `real_accuracy_claim="NONE"`. Configuration thực phải là `UNSPECIFIED` và fail closed; tolerance synthetic không phải dung sai máy thật.
+
+```bash
+.venv/bin/python -m unittest tests/test_integration_contract_hardening.py -v
+.venv/bin/python -m unittest tests/test_experimental_integration.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim
