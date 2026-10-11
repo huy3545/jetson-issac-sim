@@ -197,7 +197,7 @@ Gate A is a synthetic geometry proof only: it independently measures each solver
 
 ## Stage 7C-5 — Corner-Aware Two-Line Centerline Support
 
-`CornerAwareTwoLineSolver` là extension experimental, giữ Phase 1A làm topology gate và fallback cho geometry mượt. Khi cả hai boundaries có đúng một corner tương ứng cùng chiều, solver chia boundaries thành các run trước/sau corner, dùng **arc-length correspondence trong từng run đã xác nhận**, rồi giữ đúng midpoint corner nguồn. Đây không phải pairing theo array index. Cấu hình thử nghiệm khai báo `corner_angle_deg=30°`, `corner_fraction_tolerance=0.15` và `resample_step_m=0.005`.
+`CornerAwareTwoLineSolver` là extension experimental, giữ Phase 1A làm topology gate và fallback cho geometry mượt. Stage 7C-5 không công bố midpoint corner theo array index như một medial axis.
 
 Các fixture được hỗ trợ sau kiểm tra số học: straight, gentle S-curve và uneven/unequal sampling. Kiểm toán Stage 7C-5A chứng minh candidate 90° tại corner reference `(0.6 m, 0 m)` có boundary-distance residual tối đa `0.041421356237 m`; vì thế 90° bị downgrade thành `CORNER_MEDIAL_AXIS_UNVERIFIED`, không còn được coi là medial centerline. `TwoLineGeometryMetadata` có `source_indices` unavailable mặc định và `curvature_valid`; curvature chỉ available ở segment curve đã qualified. Không có C-axis, speed hay execution command.
 
@@ -205,11 +205,30 @@ Các fixture được hỗ trợ sau kiểm tra số học: straight, gentle S-c
 
 ## Stage 7C-5A — Corner Geometry Evidence & Metadata Integrity
 
-Stage 7C-5A thay thế claim corner không được chứng minh bằng evidence fail-closed. Full-path independent check dùng segment distance cho candidate 90° phát hiện residual `0.041421356237 m`, nên solver trả `CORNER_MEDIAL_AXIS_UNVERIFIED`. Không còn width `NaN`, coverage `1.0`, output index hay curvature giả cho corner bị reject. Với result không có path, coverage, width và source correspondence là unavailable; smooth-path metadata vẫn có arc length, tangent và curvature validity riêng.
+Stage 7C-5A thay thế claim corner không được chứng minh bằng evidence fail-closed. Full-path independent check dùng segment distance cho candidate midpoint 90° phát hiện residual `0.041421356237 m`, nên candidate đó trả `CORNER_MEDIAL_AXIS_UNVERIFIED`. Không còn width, coverage, output index hay curvature giả cho geometry bị reject. Với result không có path, coverage, width và source correspondence là unavailable; smooth-path metadata vẫn có arc length, tangent và curvature validity riêng.
 
 ```bash
 .venv/bin/python -m unittest tests/test_stage7c5a_corner_evidence.py -v
 .venv/bin/python -m unittest tests/test_stage7c5_corner_aware_centerline.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
+## Stage 7C-6 — Verified Corner Medial-Axis Geometry
+
+Stage 7C-6 chỉ hỗ trợ fixture synthetic rất hẹp: hai boundary mở, mỗi boundary có đúng một turn 90°, offset đồng nhất và outer miter được chứng minh từ inner corner. Solver tạo analytic medial axis theo feature association toàn boundary: straight incoming section, segment/vertex parabola, vertex/outer-segment locus và straight outgoing section. Đây là **geometric medial axis**, không phải practical toolpath: production solver kiểm tra residual ở 17 vị trí trên từng output edge (endpoint và 16 subdivision), không chỉ ở waypoint. Output resolution bị giới hạn để large `resample_step_m` không làm yếu certificate. Independent test kiểm tra containment/self-intersection theo segment và đạt max residual `<= 1e-6 m`, RMS `<= 1e-7 m`; fixture hiện tại có sample max residual xấp xỉ `1.81e-16 m` và edge-subdivision max residual `3.12e-7 m`.
+
+Candidate midpoint cũ `(0.6 m, 0 m)` vẫn không hợp lệ với residual `0.041421356237 m`. Geometry không thỏa square-channel contract tiếp tục `CORNER_MEDIAL_AXIS_UNVERIFIED`; reflex 270° giữ `REFLEX_ORIENTATION_UNPROVEN`, turnback 180° giữ `TURNBACK_UNSUPPORTED`, và correspondence mơ hồ giữ `AMBIGUOUS_CORNER_CORRESPONDENCE`. Fatal input/topology codes (`INVALID_SHAPE`, `NON_FINITE_INPUT`, `ZERO_LENGTH_SEGMENT`, `SELF_INTERSECTION`, `BOUNDARY_INTERSECTION`, `BOUNDARY_TOUCH`) luôn được Phase 1A chặn trước analytic recovery.
+
+`coverage_ratio=1.0` chỉ có nghĩa analytic path đi từ midpoint của cross-section đầu đến midpoint của cross-section cuối, với toàn bộ feature branches được xây dựng và independently equidistant/contained; nó không phải sensor-coverage hay execution authorization. `width_m` là tổng hai khoảng cách segment-to-point tại mỗi output point, vì vậy thay đổi có ý nghĩa gần corner nhưng không phải tolerance máy. Input được Phase 1A validate **trước** traversal normalization; invalid shape/non-finite/zero-length/self-intersection/crossing/touch không thể đi vào analytic recovery. Source `-1` nghĩa là không có exact source index; nearest segment/fraction được công bố riêng là `GEOMETRIC_SEGMENT_PROJECTION`, không phải generation lineage. `smooth_branch_ranges` và `transition_indices` tách stencil đạo hàm: curvature/tangent không tính qua feature switch và dùng cùng validity mask; các stencil quanh transition là unavailable; curvature ở branch thẳng được đo gần `0`, branch parabola được so với nghiệm giải tích, ở nhiều `resample_step_m`.
+
+`CornerAwareConfig` reject fail-closed mọi residual-gate configuration không hữu hạn hoặc không hợp lệ. `polyline_verification_subdivisions` phải là integer không phải boolean và tối thiểu `16`; `resample_step_m` và residual tolerance phải hữu hạn, dương. Sampled edge verification là numerical qualification của các vị trí đã lấy mẫu, **không phải** chứng minh toán học cho mọi vị trí liên tục giữa samples.
+
+Gate A6-90 là proof synthetic; Gate A6-REFLEX và Gate A6-TURNBACK vẫn BLOCKED. Gate B strict Vision→Path vẫn BLOCKED vì calibration, metric uncertainty và provenance chưa được xác minh; `execution_authorized=False` và không có controller command.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c6_verified_corner_medial_axis.py -v
+.venv/bin/python -m unittest tests/test_stage7c5a_corner_evidence.py -v
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```

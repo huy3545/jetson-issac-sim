@@ -16,10 +16,12 @@ class CornerAwareTests(unittest.TestCase):
         values=dict(frame_timestamp=1.,frame_clock_domain="sim",frame_id="corner",coordinate_frame="workpiece_m",units="m",left=self._line("left",boundary_left),right=self._line("right",boundary_right));values.update(changes)
         return VisionPathAdapter(solver=solver or CornerAwareTwoLineSolver(),require_point_provenance=True).plan(VisionResult(**values))
 
-    def test_sharp_90_corner_is_rejected_without_medial_axis_evidence(self):
+    def test_sharp_90_corner_uses_qualified_medial_axis_not_midpoint_shortcut(self):
         left=np.array([[0.,.1],[.5,.1],[.5,.6]]);right=np.array([[0.,-.1],[.7,-.1],[.7,.6]])
-        result=self._plan(left,right);self.assertEqual(result.status,VisionPathStatus.REJECTED)
-        self.assertEqual(result.reason_codes,("CORNER_MEDIAL_AXIS_UNVERIFIED",))
+        result=self._plan(left,right);self.assertEqual(result.status,VisionPathStatus.VERIFIED)
+        segment=result.solver_result.segments[0]
+        self.assertIn("ANALYTIC_SQUARE_CORNER_MEDIAL_AXIS",segment.reason_codes)
+        self.assertTrue(result.solver_result.fully_covered)
 
     def test_straight_s_curve_unequal_count_and_uneven_sampling_remain_supported(self):
         straight=self._plan(np.array([[0.,.1],[1.,.1]]),np.array([[0.,-.1],[1.,-.1]]));self.assertEqual(straight.status,VisionPathStatus.VERIFIED)
@@ -30,7 +32,9 @@ class CornerAwareTests(unittest.TestCase):
         self.assertEqual(meta.curvature_status,CurvatureStatus.AVAILABLE);self.assertTrue(meta.curvature_valid.all())
 
     def test_reflex_turnback_and_ambiguous_correspondence_reject_stably(self):
-        reflex=self._plan(np.array([[0.,.1],[.5,.1],[.5,.6]]),np.array([[0.,-.1],[.7,-.1],[.7,-.6]]));self.assertEqual(reflex.reason_codes,("REFLEX_ORIENTATION_UNPROVEN",))
+        # This opposite-turn fixture has no boundary crossing; a crossing
+        # topology is instead rejected as BOUNDARY_INTERSECTION.
+        reflex=self._plan(np.array([[0.,.1],[.5,.1],[.5,.6]]),np.array([[0.,-.1],[.5,-.1],[.5,-.2]]));self.assertEqual(reflex.reason_codes,("REFLEX_ORIENTATION_UNPROVEN",))
         turnback=self._plan(np.array([[0.,.1],[.5,.1],[0.,.1]]),np.array([[0.,-.1],[.5,-.1],[0.,-.1]]));self.assertEqual(turnback.reason_codes,("TURNBACK_UNSUPPORTED",))
         ambiguous=self._plan(np.array([[0.,.1],[.1,.1],[.1,.6]]),np.array([[0.,-.1],[.9,-.1],[.9,.6]]));self.assertEqual(ambiguous.reason_codes,("AMBIGUOUS_CORNER_CORRESPONDENCE",))
 

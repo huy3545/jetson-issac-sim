@@ -41,6 +41,10 @@ class PlanarMedialAxisConfig:
 class SolverSegment:
     xy: np.ndarray; s: np.ndarray; width_m: np.ndarray; point_valid: np.ndarray
     status: SolverStatus; reason_codes: tuple[str,...] = ()
+    # Optional geometric partition.  Ranges are inclusive point-index pairs;
+    # transitions are deliberately excluded from numerical derivatives.
+    smooth_branch_ranges: tuple[tuple[int,int],...] = ()
+    transition_indices: tuple[int,...] = ()
 
 @dataclass(frozen=True)
 class SolverDiagnostics:

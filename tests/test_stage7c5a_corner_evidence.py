@@ -34,7 +34,7 @@ class CornerEvidenceTests(unittest.TestCase):
         vision=VisionResult(1.,"sim",frame_id="corner",coordinate_frame="workpiece_m",units="m",left=line("left",self.left),right=line("right",self.right))
         self.result=VisionPathAdapter(solver=CornerAwareTwoLineSolver(),require_point_provenance=True).plan(vision)
 
-    def test_independent_complete_path_check_downgrades_90_corner(self):
+    def test_independent_complete_path_check_rejects_former_midpoint_but_not_qualified_axis(self):
         # This is the former run-midpoint candidate, independently constructed;
         # it proves why retaining the source corner would not be a medial axis.
         reference=np.array([[0.,0.],[.6,0.],[.6,.6]])
@@ -42,17 +42,17 @@ class CornerEvidenceTests(unittest.TestCase):
         dl=np.array([distance(point,self.left) for point in candidate]);dr=np.array([distance(point,self.right) for point in candidate])
         self.assertAlmostEqual(np.max(np.abs(dl-dr)),.0414213562373095,places=12)
         self.assertTrue(all(reference_distance(point,reference)<1e-12 for point in candidate))
-        self.assertEqual(self.result.status,VisionPathStatus.REJECTED);self.assertEqual(self.result.reason_codes,("CORNER_MEDIAL_AXIS_UNVERIFIED",))
+        self.assertEqual(self.result.status,VisionPathStatus.VERIFIED)
 
-    def test_rejected_corner_has_no_width_coverage_or_source_mapping_claim(self):
-        self.assertEqual(self.result.status,VisionPathStatus.REJECTED)
-        self.assertEqual(self.result.solver_result.segments,())
-        self.assertIsNone(self.result.solver_result.diagnostics.coverage_ratio)
-        # The metadata analyzer exposes unavailable values rather than output
-        # indices pretending to be source identities.
+    def test_qualified_corner_keeps_mapping_explicit_and_curvature_localized(self):
+        self.assertEqual(self.result.status,VisionPathStatus.VERIFIED)
+        self.assertEqual(self.result.solver_result.diagnostics.coverage_ratio,1.)
+        self.assertLess(self.result.solver_result.diagnostics.max_residual_m,1e-6)
         meta=TwoLineGeometryAnalyzer().analyze(self.result,self.left,self.right,coordinate_frame="workpiece_m",units="m")
-        self.assertEqual(meta.curvature_status,CurvatureStatus.UNAVAILABLE)
-        self.assertEqual(len(meta.source_correspondence),0);self.assertTrue(np.all(meta.source_indices==-1))
+        self.assertEqual(meta.curvature_status,CurvatureStatus.UNAVAILABLE_AT_CORNER)
+        self.assertTrue((meta.source_indices==-1).all())
+        self.assertEqual(len(meta.source_correspondence),len(meta.arc_length_m))
+        self.assertFalse(meta.curvature_valid.all());self.assertTrue(meta.curvature_valid.any())
 
     def test_fault_conditions_are_explicit(self):
         solver=CornerAwareTwoLineSolver()
