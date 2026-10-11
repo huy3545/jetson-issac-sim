@@ -233,11 +233,13 @@ Gate A6-90 là proof synthetic; Gate A6-REFLEX và Gate A6-TURNBACK vẫn BLOCKE
 .venv/bin/python main.py
 ```
 
-## Stage 7D-1 — Six-Module End-to-End Dry Run
+## Stage 7D-1A — Six-Module Trace & Evidence Hardening
 
-`integration/six_module_dry_run.py` là entrypoint experimental tạo đúng sáu record theo thứ tự: Vision, Path, Motion, Safety, Machine Control Simulation và Data Logging. Mỗi record giữ `schema_version`, run/correlation identity, frame/time/clock, frame/units, source path/segment IDs, provenance, confidence, uncertainty, geometry/admission status, reason codes và luôn `execution_authorized=False`.
+`integration/six_module_dry_run.py` là entrypoint experimental tạo đúng sáu record theo thứ tự: Vision, Path, Motion, Safety, Machine Control Simulation và Data Logging. Vision→Path chạy public `VisionPathAdapter` và solver geometry; Motion, Safety và Machine Control Simulation chỉ là passive records, không tạo motion target, không import `MachineController` và luôn `execution_authorized=False`.
 
-Fixture square-miter 90° có thể đạt `SYNTHETIC_GEOMETRY_VERIFIED` ở Path, nhưng record Path vẫn `BLOCKED` bởi `STRICT_GATE_B_BLOCKED`, `CALIBRATION_UNVERIFIED` và `XYZ_UNCERTAINTY_UNKNOWN`. Motion không tạo target, Safety giữ veto, Machine Control Simulation chỉ ghi passive blocked boundary và không import `MachineController`. Audit sink ghi cả sáu stage; audit failure trả `AUDIT_LOGGING_FAILED` và `audit_complete=False`. Entry point không thay đổi `main.py` hoặc CSV logging V1.
+Trace giữ `schema_version`, run/correlation identity, frame/time/clock, coordinate frame/units, confidence, provenance, diagnostics và status. `VisionPathResult` hiện không công bố path/segment ID tin cậy, nên `source_path_id=None` và `source_segment_ids=()` thay vì tạo ID giả. Geometry synthetic có thể là `SYNTHETIC_GEOMETRY_VERIFIED`, nhưng strict Gate B vẫn `BLOCKED`: calibration/transform ID do caller khai báo được ghi `DECLARED_UNVERIFIED`; `KNOWN` uncertainty do caller cung cấp cũng không là evidence. Không có calibration thực nghiệm, transform đã xác minh hay metric XYZ uncertainty đã xác minh trong harness này.
+
+Dependency propagation giữ nguyên nguyên nhân: Path `BLOCKED` làm Motion `BLOCKED`; Path `REJECTED`/`SKIPPED` làm downstream `SKIPPED`; upstream error không thể thành success. Pipeline có precedence `ERROR > REJECTED > BLOCKED > SKIPPED`. `Data Logging=ACCEPTED` chỉ có nghĩa audit sink xác nhận từng `emit`, không có nghĩa pipeline accepted hoặc dữ liệu đã bền vững trên đĩa. `audit_write_status`, `records_attempted`, `records_confirmed` và `audit_complete` phân biệt zero, partial và complete acknowledgement. Audit failure luôn trả `AUDIT_LOGGING_FAILED`, `final_status=ERROR`, trong khi in-memory result vẫn đủ sáu records. Legacy CSV logging và `main.py` không bị thay đổi.
 
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d1_six_module_dry_run.py -v

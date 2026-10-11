@@ -1,10 +1,11 @@
 """Stage 7D-1: six-module passive integration trace."""
 import unittest
 from dataclasses import replace
+from pathlib import Path
 import numpy as np
 
-from integration.six_module_dry_run import (DryRunStatus, InMemorySixModuleAuditSink,
-                                             SixModuleDryRunHarness)
+from integration.six_module_dry_run import (AuditWriteStatus, DryRunStatus,
+                                             InMemorySixModuleAuditSink, SixModuleDryRunHarness)
 from vision.contracts import (LineVisionResult, ObservationStatus, OrientationSource,
                               PointDerivationMethod, TrackingState,
                               VisionPointProvenance, VisionResult)
@@ -12,6 +13,13 @@ from vision.contracts import (LineVisionResult, ObservationStatus, OrientationSo
 
 class FailingSink:
     def emit(self, record): raise RuntimeError("sink unavailable")
+
+
+class FailingAfterSink:
+    def __init__(self, successful_writes): self.successful_writes=successful_writes; self.records=[]
+    def emit(self, record):
+        if len(self.records) >= self.successful_writes: raise RuntimeError("chosen write failure")
+        self.records.append(record)
 
 
 class SixModuleDryRunTests(unittest.TestCase):
@@ -40,6 +48,8 @@ class SixModuleDryRunTests(unittest.TestCase):
         self.assertIn("STRICT_GATE_B_BLOCKED",path.reason_codes)
         self.assertIn("CALIBRATION_UNVERIFIED",path.reason_codes)
         self.assertIn("XYZ_UNCERTAINTY_UNKNOWN",path.reason_codes)
+        self.assertIsNone(path.source_path_id)
+        self.assertEqual(path.source_segment_ids,())
         self.assertEqual(result.final_status,DryRunStatus.BLOCKED); self.assertTrue(result.audit_complete)
         self.assertTrue(all(not record.execution_authorized for record in result.records))
 
@@ -47,8 +57,8 @@ class SixModuleDryRunTests(unittest.TestCase):
         sink=InMemorySixModuleAuditSink(); result=self._run(harness={"audit_sink":sink})
         motion,safety,control,logging=result.records[2:]
         self.assertIn("UPSTREAM_STRICT_ADMISSION_BLOCKED",motion.reason_codes)
-        self.assertIn("UPSTREAM_BLOCKED",safety.reason_codes)
-        self.assertIn("EXECUTION_BLOCKED",control.reason_codes)
+        self.assertIn("UPSTREAM_STRICT_ADMISSION_BLOCKED",safety.reason_codes)
+        self.assertIn("UPSTREAM_STRICT_ADMISSION_BLOCKED",control.reason_codes)
         self.assertEqual(logging.status,DryRunStatus.ACCEPTED)
         self.assertEqual(len(sink.records),6)
         self.assertFalse(result.execution_authorized)
@@ -84,6 +94,59 @@ class SixModuleDryRunTests(unittest.TestCase):
         self.assertFalse(result.audit_complete); self.assertEqual(result.final_status,DryRunStatus.ERROR)
         self.assertEqual(result.records[-1].status,DryRunStatus.ERROR)
         self.assertIn("AUDIT_LOGGING_FAILED",result.records[-1].reason_codes)
+        self.assertEqual(result.audit_write_status,AuditWriteStatus.ZERO_ACKNOWLEDGED)
+        self.assertEqual(result.records_confirmed,0)
+
+    def test_declared_metadata_never_upgrades_evidence(self):
+        result=self._run(calibration_id="declared-cal",transform_id="declared-tf",uncertainty_status="KNOWN")
+        path=result.records[1]
+        self.assertEqual(path.calibration_evidence_status,"DECLARED_UNVERIFIED")
+        self.assertEqual(path.transform_evidence_status,"DECLARED_UNVERIFIED")
+        self.assertEqual(path.uncertainty_evidence_status,"DECLARED_UNVERIFIED")
+        self.assertEqual(path.status,DryRunStatus.BLOCKED)
+        malformed=self._run(calibration_id="",transform_id=4,uncertainty_status="MAGIC")
+        self.assertEqual(malformed.records[0].status,DryRunStatus.REJECTED)
+        self.assertIn("INVALID_CALIBRATION_ID",malformed.records[0].reason_codes)
+        self.assertIn("INVALID_TRANSFORM_ID",malformed.records[0].reason_codes)
+
+    def test_adapter_preflight_and_path_rejection_propagate_truthfully(self):
+        bad_tracking=self._run(self._vision(left=replace(self._vision().left,tracking_state=TrackingState.PREDICTING)))
+        self.assertIn("LEFT_NOT_TRACKING",bad_tracking.records[0].reason_codes)
+        bad_depth=self._run(self._vision(left=replace(self._vision().left,depth_valid=np.array([True,False,True]))))
+        self.assertIn("LEFT_DEPTH_INVALID",bad_depth.records[0].reason_codes)
+        ambiguous=self._run(self._vision(left=replace(self._vision().left,orientation_source=OrientationSource.AMBIGUOUS)))
+        self.assertIn("AMBIGUOUS_IDENTITY",ambiguous.records[0].reason_codes)
+        reflex=self._run(self._vision(right=self._line("right",np.array([[0.,-.1],[.5,-.1],[.5,-.2]]))))
+        self.assertEqual(reflex.records[1].status,DryRunStatus.REJECTED)
+        self.assertEqual(reflex.records[2].status,DryRunStatus.SKIPPED)
+        self.assertIn("UPSTREAM_REJECTED",reflex.records[2].reason_codes)
+        self.assertEqual(reflex.final_status,DryRunStatus.REJECTED)
+        self.assertIn("REFLEX_ORIENTATION_UNPROVEN",reflex.records[1].diagnostics)
+
+    def test_audit_acknowledgement_is_not_durability_and_partial_is_explicit(self):
+        complete=self._run()
+        self.assertEqual(complete.audit_write_status,AuditWriteStatus.COMPLETE_ACKNOWLEDGED)
+        self.assertEqual(complete.records_confirmed,6)
+        self.assertEqual(complete.records[-1].status,DryRunStatus.ACCEPTED)
+        self.assertEqual(complete.final_status,DryRunStatus.BLOCKED)
+        for count,status in ((1,AuditWriteStatus.PARTIAL_ACKNOWLEDGED),(4,AuditWriteStatus.PARTIAL_ACKNOWLEDGED)):
+            result=self._run(harness={"audit_sink":FailingAfterSink(count)})
+            self.assertFalse(result.audit_complete); self.assertEqual(result.records_confirmed,count)
+            self.assertEqual(result.audit_write_status,status); self.assertEqual(result.final_status,DryRunStatus.ERROR)
+            self.assertEqual(len(result.records),6)
+
+    def test_no_controller_or_motion_targets_are_exposed(self):
+        result=self._run()
+        self.assertFalse(result.execution_authorized)
+        self.assertTrue(all(not item.execution_authorized for item in result.records))
+        self.assertNotIn("import MachineController",Path("integration/six_module_dry_run.py").read_text())
+
+    def test_invalid_vision_keeps_a_six_stage_error_trace(self):
+        result=SixModuleDryRunHarness().run(object(),run_id="bad-run",correlation_id="bad-corr")
+        self.assertEqual(tuple(record.stage_id for record in result.records),SixModuleDryRunHarness.ORDER)
+        self.assertEqual(result.records[0].status,DryRunStatus.ERROR)
+        self.assertEqual(result.final_status,DryRunStatus.ERROR)
+        self.assertEqual(result.records_confirmed,6)
 
 
 if __name__=="__main__": unittest.main()
