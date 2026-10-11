@@ -487,4 +487,20 @@ Stage 7B-3A sửa audit consistency: mọi event ghi đúng `TransitionResult.pr
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7C-2 — Source Point Provenance & Metric Uncertainty Foundation
+
+`VisionPointProvenance` versioned bổ sung lineage theo từng pixel cho runtime experimental: line `left/right`, chỉ số nguồn khi runtime biết được, pixel, observation/tracking state, phương pháp tạo điểm, nguồn tham chiếu (nếu có), trạng thái lineage, confidence reference, timestamp và clock domain. Resampling được ghi là `RESAMPLING`; prediction được ghi là `PREDICTION` và không trở thành observation. `OCCLUDED` và `INVALID` được giữ nguyên, không bị đổi thành `PREDICTED`.
+
+`ExperimentalVisionMetricProjectionAdapter` công bố `MetricPointProvenance` cho mỗi XYZ: pixel nguồn, kết quả index, bốn sample depth bilinear `(row, col, weight)`, intrinsics/transform ID, observation state và availability. Mất hoặc depth không hợp lệ fail closed. `MetricUncertainty` tách pixel/depth/intrinsics/transform/XYZ thành `KNOWN`, `UNKNOWN` hoặc `EXCEEDED`; với pipeline hiện tại mọi uncertainty là `UNKNOWN`/`UNAVAILABLE`, không suy từ confidence, calibration ID hay nhãn do caller cung cấp. Evidence synthetic vẫn chỉ là synthetic.
+
+`MetricGeometryBridge` tạo immutable bytes-backed snapshots và truyền toàn bộ lineage có sẵn. `MetricBridgeVerifier.verify_lineage(...)` so sánh độc lập Vision, metric result và bridge để phát hiện source ID, ordering, pixel, depth lineage, calibration/transform hay status bị đổi. Bridge vẫn trả `BLOCKED`; provenance mới **không** mở strict Path admission và `execution_authorized` luôn `False`.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c2_point_lineage.py -v
+.venv/bin/python -m unittest tests/test_experimental_metric_projection.py -v
+.venv/bin/python -m unittest tests/test_metric_bridge.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim

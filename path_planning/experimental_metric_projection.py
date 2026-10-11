@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from enum import Enum
 import numpy as np
 
-from vision.contracts import ObservationStatus, OrientationSource, TrackingState, VisionResult
+from vision.contracts import (ObservationStatus, OrientationSource, TrackingState,
+                              VisionPointProvenance, VisionResult)
 
 
 class TransformValidity(str, Enum):
@@ -30,10 +31,65 @@ class MetricUncertaintyStatus(str, Enum):
     EXCEEDED = "EXCEEDED"
 
 
+METRIC_PROVENANCE_SCHEMA_VERSION = "1.1"
+
+
+@dataclass(frozen=True)
+class MetricUncertainty:
+    """Explicit uncertainty state; numeric accuracy is never inferred from confidence."""
+    pixel_status: MetricUncertaintyStatus = MetricUncertaintyStatus.UNKNOWN
+    depth_status: MetricUncertaintyStatus = MetricUncertaintyStatus.UNKNOWN
+    intrinsics_status: MetricUncertaintyStatus = MetricUncertaintyStatus.UNKNOWN
+    transform_status: MetricUncertaintyStatus = MetricUncertaintyStatus.UNKNOWN
+    xyz_status: MetricUncertaintyStatus = MetricUncertaintyStatus.UNKNOWN
+    evidence_kind: str = "UNAVAILABLE"
+    schema_version: str = METRIC_PROVENANCE_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if self.schema_version != METRIC_PROVENANCE_SCHEMA_VERSION:
+            raise ValueError("unsupported metric uncertainty schema")
+        if not all(isinstance(value, MetricUncertaintyStatus) for value in (
+                self.pixel_status, self.depth_status, self.intrinsics_status,
+                self.transform_status, self.xyz_status)):
+            raise ValueError("unknown metric uncertainty status")
+        if self.evidence_kind not in ("UNAVAILABLE", "SYNTHETIC"):
+            raise ValueError("uncertainty evidence_kind must be UNAVAILABLE or SYNTHETIC")
+
+
+@dataclass(frozen=True)
+class MetricPointProvenance:
+    line_id: str
+    xyz_index: int
+    vision_point: VisionPointProvenance | None
+    pixel_xy: tuple[float, float]
+    depth_samples: tuple[tuple[int, int, float], ...] | None
+    depth_method: str
+    intrinsics_id: str
+    transform_id: str
+    observation_status: ObservationStatus
+    derivation_method: str = "PIXEL_DEPTH_PROJECTION"
+    provenance_available: bool = False
+    schema_version: str = METRIC_PROVENANCE_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if self.schema_version != METRIC_PROVENANCE_SCHEMA_VERSION:
+            raise ValueError("unsupported metric point provenance schema")
+        if self.line_id not in ("left", "right") or self.xyz_index < 0:
+            raise ValueError("invalid metric point identity")
+        pixel = np.asarray(self.pixel_xy, dtype=float)
+        if pixel.shape != (2,) or not np.isfinite(pixel).all():
+            raise ValueError("pixel_xy must be finite")
+        object.__setattr__(self, "pixel_xy", (float(pixel[0]), float(pixel[1])))
+        if self.depth_samples is not None:
+            if len(self.depth_samples) != 4 or any(len(sample) != 3 for sample in self.depth_samples):
+                raise ValueError("bilinear depth lineage requires four samples")
+            object.__setattr__(self, "depth_samples", tuple((int(row), int(col), float(weight)) for row, col, weight in self.depth_samples))
+
+
 def _readonly(value):
-    array = np.array(value, dtype=float, copy=True)
-    array.setflags(write=False)
-    return array
+    array = np.ascontiguousarray(np.array(value, dtype=float, copy=True))
+    # ``bytes`` is immutable, so callers cannot re-enable ndarray writing.
+    return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
 
 
 @dataclass(frozen=True)
@@ -70,10 +126,19 @@ class MetricGeometrySegment:
     status: MetricGeometryStatus
     uncertainty_status: MetricUncertaintyStatus
     diagnostics: tuple[str, ...] = ()
+    point_provenance: tuple[MetricPointProvenance, ...] | None = None
+    uncertainty: MetricUncertainty = MetricUncertainty()
 
     def __post_init__(self):
         if self.xyz is not None:
             object.__setattr__(self, "xyz", _readonly(self.xyz))
+        if self.point_provenance is not None:
+            if not isinstance(self.point_provenance, tuple) or not all(isinstance(item, MetricPointProvenance) for item in self.point_provenance):
+                raise ValueError("point_provenance must contain MetricPointProvenance")
+            if self.xyz is None or len(self.point_provenance) != len(self.xyz):
+                raise ValueError("point_provenance must align with xyz")
+        if not isinstance(self.uncertainty, MetricUncertainty):
+            raise ValueError("uncertainty must be MetricUncertainty")
 
 
 @dataclass(frozen=True)
@@ -92,6 +157,11 @@ class MetricGeometryResult:
     diagnostics: tuple[str, ...] = ()
     experimental: bool = True
     execution_authorized: bool = False
+    uncertainty: MetricUncertainty = MetricUncertainty()
+
+    def __post_init__(self):
+        if not isinstance(self.uncertainty, MetricUncertainty):
+            raise ValueError("uncertainty must be MetricUncertainty")
 
 
 @dataclass(frozen=True)
@@ -116,15 +186,29 @@ class ExperimentalVisionMetricProjectionAdapter:
         # calibration proof.  The output consequently remains UNCERTAIN/UNKNOWN.
         segments = []
         for name, line in (("left", vision.left), ("right", vision.right)):
-            xyz, reasons = self._project_line(line.points, depth, calibration, evidence.transform_matrix)
+            xyz, depth_samples, reasons = self._project_line(line.points, depth, calibration, evidence.transform_matrix)
             if reasons:
                 return self._result(vision, evidence, MetricGeometryStatus.INVALID, tuple(reasons))
+            source_points = line.point_provenance
+            if source_points is not None and len(source_points) != len(xyz):
+                return self._result(vision, evidence, MetricGeometryStatus.INVALID, (f"{name.upper()}_POINT_PROVENANCE_MISMATCH",))
+            lineage = tuple(MetricPointProvenance(
+                line_id=name, xyz_index=index,
+                vision_point=None if source_points is None else source_points[index],
+                pixel_xy=tuple(line.points[index]), depth_samples=depth_samples[index],
+                depth_method="BILINEAR", intrinsics_id=evidence.intrinsics_id,
+                transform_id=evidence.extrinsics_id,
+                observation_status=line.observation_status,
+                provenance_available=source_points is not None and source_points[index].lineage_available)
+                for index in range(len(xyz)))
             segments.append(MetricGeometrySegment(
                 name=name, xyz=xyz, source_id=evidence.source_id, segment_id=None,
                 run_id=None, source_indices=(0, len(xyz)),
                 status=MetricGeometryStatus.UNCERTAIN,
                 uncertainty_status=MetricUncertaintyStatus.UNKNOWN,
                 diagnostics=("CALIBRATION_UNVERIFIED", "XYZ_UNCERTAINTY_UNKNOWN"),
+                point_provenance=lineage,
+                uncertainty=MetricUncertainty(),
             ))
         return MetricGeometryResult(
             segments=tuple(segments), source_id=evidence.source_id,
@@ -134,6 +218,7 @@ class ExperimentalVisionMetricProjectionAdapter:
             status=MetricGeometryStatus.UNCERTAIN,
             uncertainty_status=MetricUncertaintyStatus.UNKNOWN,
             diagnostics=("CALIBRATION_UNVERIFIED", "XYZ_UNCERTAINTY_UNKNOWN"),
+            uncertainty=MetricUncertainty(),
         )
 
     def _result(self, vision, evidence, status, diagnostics):
@@ -148,6 +233,7 @@ class ExperimentalVisionMetricProjectionAdapter:
             calibration_evidence=evidence if isinstance(evidence, TransformEvidence) else None,
             status=status, uncertainty_status=MetricUncertaintyStatus.UNKNOWN,
             diagnostics=tuple(sorted(set(diagnostics))),
+            uncertainty=MetricUncertainty(),
         )
 
     def _admission_diagnostics(self, vision, depth, calibration, evidence):
@@ -237,15 +323,20 @@ class ExperimentalVisionMetricProjectionAdapter:
         depth = np.asarray(depth, dtype=float)
         u, v = points[:, 0], points[:, 1]
         if np.any(u < 0) or np.any(v < 0) or np.any(u > depth.shape[1] - 1) or np.any(v > depth.shape[0] - 1):
-            return None, ("PIXEL_OUT_OF_DEPTH_BOUNDS",)
+            return None, None, ("PIXEL_OUT_OF_DEPTH_BOUNDS",)
         u0, v0 = np.floor(u).astype(int), np.floor(v).astype(int)
         u1, v1 = np.minimum(u0 + 1, depth.shape[1] - 1), np.minimum(v0 + 1, depth.shape[0] - 1)
         values = np.array((depth[v0, u0], depth[v0, u1], depth[v1, u0], depth[v1, u1]))
         if not np.isfinite(values).all() or (values <= 0).any():
-            return None, ("INVALID_OR_MISSING_DEPTH",)
+            return None, None, ("INVALID_OR_MISSING_DEPTH",)
         a, b = u-u0, v-v0
         z = values[0]*(1-a)*(1-b) + values[1]*a*(1-b) + values[2]*(1-a)*b + values[3]*a*b
         camera = np.column_stack(((u-calibration.cx)*z/calibration.fx,
                                   (v-calibration.cy)*z/calibration.fy,
                                   z, np.ones(len(z))))
-        return (camera @ transform.T)[:, :3], ()
+        weights=np.column_stack(((1-a)*(1-b), a*(1-b), (1-a)*b, a*b))
+        samples=tuple(tuple((int(row), int(col), float(weight)) for row, col, weight in
+                            ((v0[index],u0[index],weights[index,0]), (v0[index],u1[index],weights[index,1]),
+                             (v1[index],u0[index],weights[index,2]), (v1[index],u1[index],weights[index,3])))
+                      for index in range(len(u)))
+        return (camera @ transform.T)[:, :3], samples, ()

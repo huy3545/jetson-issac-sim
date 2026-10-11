@@ -5,7 +5,8 @@ import numpy as np
 from config import VisionConfig
 from data_source import RGBDFrame
 from .contracts import (ContourType, LineVisionResult, ObservationStatus, OverallState,
-                        OrientationSource, TrackingState, VisionResult)
+                        OrientationSource, PointDerivationMethod, TrackingState,
+                        VisionPointProvenance, VisionResult)
 from .tracking import LineTracker
 from .v11 import resample_arc_length, sample_depth_valid, semantic_order
 from .vision_processor import VisionProcessor
@@ -46,19 +47,34 @@ class ExperimentalVisionRuntime:
             except ValueError: continue
             lines.append(line+np.array([x0,y0]))
         return sorted(lines,key=lambda line:len(line),reverse=True)[:4]
-    def _line(self, points, observed, tracker, memory, frame):
+    def _line(self, points, observed, tracker, memory, frame, line_id):
         timestamp=frame.timestamp
         status,state,age=tracker.update(observed,timestamp)
         if observed:
-            points=resample_arc_length(points,self.config.experimental_depth_resample_points)
+            raw_points=np.asarray(points,dtype=float)
+            points=resample_arc_length(raw_points,self.config.experimental_depth_resample_points)
             valid,ratio,ranges=sample_depth_valid(frame.depth,points)
             quality=min(1.,cv2.Laplacian(cv2.cvtColor(frame.rgb,cv2.COLOR_RGB2GRAY),cv2.CV_64F).var()/max(self.config.experimental_blur_laplacian_min,1e-9))
             confidence=ratio*quality; memory.points=points; memory.timestamp=timestamp
             contour=ContourType.CLOSED if np.linalg.norm(points[0]-points[-1]) < 2 else ContourType.OPEN
-            return LineVisionResult(points,status,state,confidence,0.,valid,ratio,ranges,OrientationSource.REFERENCE,0.,confidence>=self.config.experimental_min_observation_confidence,(),contour)
+            # Resampling changes the point identity.  The nearest raw trace index is
+            # disclosed, but no external source-point identifier is invented.
+            indices=np.argmin(((points[:,None,:]-raw_points[None,:,:])**2).sum(axis=2),axis=1)
+            provenance=tuple(VisionPointProvenance(
+                line_id=line_id,source_index=int(index),pixel_xy=tuple(point),
+                observation_status=status,tracking_state=state,
+                derivation_method=PointDerivationMethod.RESAMPLING,
+                lineage_available=True,confidence_reference="line_confidence",
+                timestamp=timestamp,clock_domain=frame.clock_domain)
+                for point,index in zip(points,indices))
+            return LineVisionResult(points,status,state,confidence,0.,valid,ratio,ranges,OrientationSource.REFERENCE,0.,confidence>=self.config.experimental_min_observation_confidence,(),contour,provenance)
         uncertainty=float('inf') if memory.timestamp is None else age/self.config.experimental_tracking_timeout_ms*self.config.experimental_roi_prediction_expansion_px
         if state is TrackingState.PREDICTING and memory.points is not None and uncertainty<=self.config.experimental_roi_prediction_expansion_px:
-            return LineVisionResult(memory.points,status,state,max(0.,1-age/self.config.experimental_tracking_timeout_ms)*.5,age,None,0.,(),OrientationSource.REFERENCE,uncertainty,False,((0,len(memory.points)),),ContourType.UNKNOWN)
+            provenance=tuple(VisionPointProvenance(line_id=line_id,source_index=None,pixel_xy=tuple(point),
+                observation_status=status,tracking_state=state,derivation_method=PointDerivationMethod.PREDICTION,
+                lineage_available=False,confidence_reference="line_confidence",timestamp=timestamp,
+                clock_domain=frame.clock_domain) for point in memory.points)
+            return LineVisionResult(memory.points,status,state,max(0.,1-age/self.config.experimental_tracking_timeout_ms)*.5,age,None,0.,(),OrientationSource.REFERENCE,uncertainty,False,((0,len(memory.points)),),ContourType.UNKNOWN,provenance)
         return LineVisionResult(None,ObservationStatus.INVALID,TrackingState.LOST,0.,age,None,0.,(),OrientationSource.AMBIGUOUS,float('inf'),False,(),ContourType.UNKNOWN)
     def process_frame(self, frame: RGBDFrame)->VisionResult:
         if frame.timestamp is None or not np.isfinite(frame.timestamp): raise ValueError('Experimental runtime requires a finite frame timestamp')
@@ -79,7 +95,7 @@ class ExperimentalVisionRuntime:
                 dl=np.linalg.norm(candidates[0].mean(0)-self.left_memory.points.mean(0)); dr=np.linalg.norm(candidates[0].mean(0)-self.right_memory.points.mean(0))
                 if abs(dl-dr)>1e-6:
                     left=candidates[0] if dl<dr else None; right=candidates[0] if dr<dl else None
-        l=self._line(left,left is not None,self.left_tracker,self.left_memory,frame); r=self._line(right,right is not None,self.right_tracker,self.right_memory,frame)
+        l=self._line(left,left is not None,self.left_tracker,self.left_memory,frame,"left"); r=self._line(right,right is not None,self.right_tracker,self.right_memory,frame,"right")
         observed=[l.observation_status is ObservationStatus.OBSERVED,r.observation_status is ObservationStatus.OBSERVED]
         overall=OverallState.BOTH_OK if all(observed) else OverallState.ONE_DEGRADED if any(observed) else OverallState.BOTH_LOST
         if all(observed):
