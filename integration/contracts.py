@@ -28,9 +28,11 @@ def _identifier(value, name, required=False):
         return
     if not isinstance(value,(str,int)) or not _IDENTIFIER.fullmatch(str(value)): raise ValueError(f"malformed {name}")
 def _finite(value,name):
-    if value is not None and (not isinstance(value,(int,float)) or not math.isfinite(value)): raise ValueError(f"{name} must be finite when supplied")
+    if value is not None and (isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value)): raise ValueError(f"{name} must be finite when supplied")
 def _schema(value):
     if value not in SUPPORTED_SCHEMA_VERSIONS: raise ValueError(f"unsupported schema_version: {value}")
+def _code_tuple(value,name):
+    if not isinstance(value,tuple) or not all(isinstance(item,str) and item for item in value):raise ValueError(f"{name} must be a tuple of non-empty strings")
 
 @dataclass(frozen=True)
 class PointProvenance:
@@ -43,7 +45,9 @@ class PointProvenance:
         if not isinstance(self.observation_status,ProvenanceObservationStatus):raise ValueError("unknown observation_status")
         if not isinstance(self.confidence_status,ConfidenceStatus):raise ValueError("unknown confidence_status")
         if not isinstance(self.derivation_method,DerivationMethod):raise ValueError("unknown derivation_method")
-        if not isinstance(self.source_point_ids,tuple) or not self.source_point_ids:raise ValueError("source_point_ids are required")
+        if not isinstance(self.source_point_ids,tuple):raise ValueError("source_point_ids must be a tuple")
+        if self.derivation_method is DerivationMethod.OBSERVATION and self.source_point_ids:raise ValueError("observed point cannot have source_point_ids")
+        if self.derivation_method is not DerivationMethod.OBSERVATION and not self.source_point_ids:raise ValueError("derived source_point_ids are required")
         for source in self.source_point_ids:_identifier(source,"source_point_id",True)
         for name in ("source_run_id","source_frame_id","segment_id","calibration_id","transform_id","config_version"):_identifier(getattr(self,name),name)
         _finite(self.timestamp,"timestamp");_finite(self.confidence_value,"confidence_value")
@@ -64,10 +68,11 @@ class MotionTimingRecord:
     def __post_init__(self):
         _schema(self.schema_version)
         if not isinstance(self.admission_status,AdmissionStatus):raise ValueError("unknown admission_status")
-        if not isinstance(self.target_index,int) or self.target_index<0:raise ValueError("target_index must be a non-negative integer")
+        if isinstance(self.target_index,bool) or not isinstance(self.target_index,int) or self.target_index<0:raise ValueError("target_index must be a non-negative integer")
         for name in ("segment_id","source_path_id","coordinate_frame","units"):_identifier(getattr(self,name),name,True)
         for name in ("timestamp","duration_s","speed_m_s","c_rad"):_finite(getattr(self,name),name)
         if self.duration_s is not None and self.duration_s<0:raise ValueError("duration_s cannot be negative")
+        _code_tuple(self.reason_codes,"reason_codes")
     @property
     def timing_status(self):return TimingStatus.SPECIFIED if self.timestamp is not None or self.duration_s is not None else TimingStatus.UNSPECIFIED
     def timing_reason_codes(self):return () if self.timing_status is TimingStatus.SPECIFIED else ("TIMING_UNSPECIFIED",)
@@ -95,12 +100,14 @@ class IntegrationRecord:
         _finite(self.timestamp,"timestamp");_finite(self.confidence,"confidence")
         if self.confidence is not None and not 0<=self.confidence<=1:raise ValueError("confidence must be in [0, 1]")
         if self.execution_authorized:raise ValueError("experimental integration cannot authorize execution")
+        _code_tuple(self.provenance_references,"provenance_references");_code_tuple(self.reason_codes,"reason_codes");_code_tuple(self.diagnostics,"diagnostics")
 
 @dataclass(frozen=True)
 class IntegrationEvent:
     run_id:str;correlation_id:str;stage_id:str;event_type:str;timestamp:float|None;reason_codes:tuple[str,...]=();diagnostics:tuple[str,...]=();schema_version:str=INTEGRATION_SCHEMA_VERSION
     def __post_init__(self):
         _schema(self.schema_version);_identifier(self.run_id,"run_id",True);_identifier(self.correlation_id,"correlation_id",True);_identifier(self.stage_id,"stage_id",True);_finite(self.timestamp,"timestamp")
+        _code_tuple(self.reason_codes,"reason_codes");_code_tuple(self.diagnostics,"diagnostics")
 
 @dataclass(frozen=True)
 class IntegrationRunResult:
@@ -109,3 +116,5 @@ class IntegrationRunResult:
         _schema(self.schema_version);_identifier(self.run_id,"run_id",True);_identifier(self.correlation_id,"correlation_id",True)
         if not isinstance(self.final_status,AdmissionStatus):raise ValueError("unknown final_status")
         if self.execution_authorized:raise ValueError("experimental integration cannot authorize execution")
+        if not isinstance(self.records,tuple) or not all(isinstance(item,IntegrationRecord) for item in self.records):raise ValueError("records must contain IntegrationRecord")
+        if not isinstance(self.events,tuple) or not all(isinstance(item,IntegrationEvent) for item in self.events):raise ValueError("events must contain IntegrationEvent")

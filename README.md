@@ -411,4 +411,18 @@ Structured audit logging mặc định là in-memory và passive: lỗi sink ch�
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-1A — Contract Validation Fixes
+
+`integration.validation.ProvenanceResolver` là strict validator đệ quy cho `PointProvenance`. Điểm quan sát gốc dùng `derivation_method=OBSERVATION` và không có parent giả. Điểm derived phải giải quyết được toàn bộ `source_point_ids`; source thiếu trả `SOURCE_PROVENANCE_UNRESOLVED`, source `PREDICTED`/`UNKNOWN` bị từ chối, run không khớp trả `SOURCE_RUN_MISMATCH` và cycle trả `PROVENANCE_CYCLE`. Validator không tin riêng nhãn của điểm đầu ra và không thay đổi provenance để hợp thức hóa admission.
+
+`CompatibilityValidator` kiểm tra run/frame/time, clock domain, coordinate frame, units, calibration/transform, config version và segment identity. Timestamp khác nhau chỉ được chấp nhận khi caller cung cấp chính sách đồng bộ hữu hạn rõ ràng; không có tolerance thì trả `FRAME_TIME_MISMATCH`. `PointProvenance`, motion timing và integration records cũng từ chối bool tại numeric fields, tuple nested sai cấu trúc, enum/schema không hỗ trợ và execution authorization.
+
+```bash
+.venv/bin/python -m unittest tests/test_integration_validation.py -v
+.venv/bin/python -m unittest tests/test_integration_contract_hardening.py -v
+.venv/bin/python -m unittest tests/test_experimental_integration.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim
