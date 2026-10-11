@@ -454,4 +454,19 @@ Không có mutation framework dependency trong repository. Test `test_contract_i
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-2A — Independent Safety Boundary Hardening
+
+`SyntheticMachineState` thay thế evidence machine-state kiểu tự do. Contract immutable này bắt buộc run/correlation/frame/time/clock domain, configuration identity, giá trị simulation hữu hạn, evidence status và `real_accuracy_claim="NONE"`. Object rỗng hoặc arbitrary object không còn được Safety chấp nhận là evidence.
+
+`apply_boundary_veto(..., protected=True, path=..., motion=..., limits=...)` bắt buộc `SafetyDecision` còn phù hợp tại boundary Safety→Mock Control: decision phải `ACCEPTED` và khớp run/correlation, path/motion IDs và hashes, cùng safety config version. Thiếu, stale hoặc unrelated decision đều `BLOCKED`. Boundary không được safety-protected vẫn có thể hoạt động với upstream acceptance theo contract cũ.
+
+`PathPlan` và `MotionPlan` lưu NumPy XYZ trong immutable bytes-backed buffers. Caller array, direct attribute, view và thử `setflags(write=True)` không thể sửa plan hoặc làm hash không còn đúng. Safety cũng kiểm tra metadata point/path, timing target index/path/segment, provenance reference, plan config và machine-state identity/domain/configuration.
+
+```bash
+.venv/bin/python -m unittest tests/test_safety_boundary_hardening.py -v
+.venv/bin/python -m unittest tests/test_independent_safety.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim

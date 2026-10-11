@@ -10,6 +10,7 @@ from .experimental_harness import ExperimentalIntegrationHarness, ExperimentalSa
 from .validation import CompatibilityValidator, MergeResult, ProvenanceMerger, ProvenanceResolver, ValidationOutcome
 from .independent_safety import (BoundaryVeto, IndependentSafetyValidator, MotionPlan, PathPlan,
                                  SafetyAuditEvent, SafetyDecision, SafetyStatus, SyntheticMachineLimits, apply_boundary_veto)
+from .independent_safety import MachineStateEvidenceStatus, SyntheticMachineState
 
 __all__ = (
     "AdmissionStatus", "ConfigurationKind", "ConfidenceStatus", "DerivationMethod",
@@ -20,5 +21,6 @@ __all__ = (
     "CompatibilityValidator", "MergeResult", "ProvenanceMerger", "ProvenanceResolver", "ValidationOutcome",
     "BoundaryVeto", "IndependentSafetyValidator", "MotionPlan", "PathPlan", "SafetyAuditEvent", "SafetyDecision",
     "SafetyStatus", "SyntheticMachineLimits", "apply_boundary_veto",
+    "MachineStateEvidenceStatus", "SyntheticMachineState",
     "ExperimentalIntegrationHarness", "ExperimentalSafetyAssessment",
 )
