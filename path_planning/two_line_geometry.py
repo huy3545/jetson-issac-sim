@@ -30,9 +30,16 @@ class TwoLineGeometryMetadata:
     arc_length_m:np.ndarray; tangent_xy:np.ndarray; curvature_m_inv:np.ndarray
     curvature_status:CurvatureStatus; left_turn:CornerClass; right_turn:CornerClass
     continuity:bool; coordinate_frame:str; units:str; reason_codes:tuple[str,...]=()
+    source_indices:np.ndarray|None=None; curvature_valid:np.ndarray|None=None
     def __post_init__(self):
         for name in ("arc_length_m","tangent_xy","curvature_m_inv"):
             object.__setattr__(self,name,_ro(getattr(self,name)))
+        count=len(self.arc_length_m)
+        indices=np.arange(count,dtype=int) if self.source_indices is None else np.asarray(self.source_indices,dtype=int)
+        valid=np.zeros(count,dtype=bool) if self.curvature_valid is None else np.asarray(self.curvature_valid,dtype=bool)
+        indices=np.frombuffer(np.ascontiguousarray(indices).tobytes(),dtype=indices.dtype).reshape(indices.shape)
+        valid=np.frombuffer(np.ascontiguousarray(valid).tobytes(),dtype=valid.dtype).reshape(valid.shape)
+        object.__setattr__(self,"source_indices",indices);object.__setattr__(self,"curvature_valid",valid)
 
 class TwoLineGeometryAnalyzer:
     """Does not alter a centerline or infer a tool/C-axis orientation."""
@@ -44,11 +51,11 @@ class TwoLineGeometryAnalyzer:
         s=np.r_[0.,np.cumsum(ds)]; continuity=bool(len(ds) and np.all(ds>0) and np.isfinite(xy).all())
         source_corner=left_turn is not CornerClass.NONE or right_turn is not CornerClass.NONE
         if not continuity:
-            return TwoLineGeometryMetadata(s,np.full_like(xy,np.nan),np.full(len(xy),np.nan),CurvatureStatus.UNAVAILABLE,left_turn,right_turn,False,coordinate_frame,units,("CENTERLINE_DISCONTINUOUS",))
+            return TwoLineGeometryMetadata(s,np.full_like(xy,np.nan),np.full(len(xy),np.nan),CurvatureStatus.UNAVAILABLE,left_turn,right_turn,False,coordinate_frame,units,("CENTERLINE_DISCONTINUOUS",),np.arange(len(xy)),np.zeros(len(xy),bool))
         tangent=np.gradient(xy,s,axis=0); tangent/=np.linalg.norm(tangent,axis=1,keepdims=True)
         if source_corner:
             codes.append("CURVATURE_UNAVAILABLE_AT_SOURCE_CORNER")
             curvature=np.full(len(xy),np.nan); status=CurvatureStatus.UNAVAILABLE_AT_CORNER
         else:
             curvature=np.linalg.norm(np.gradient(tangent,s,axis=0),axis=1); status=CurvatureStatus.AVAILABLE
-        return TwoLineGeometryMetadata(s,tangent,curvature,status,left_turn,right_turn,True,coordinate_frame,units,tuple(codes))
+        return TwoLineGeometryMetadata(s,tangent,curvature,status,left_turn,right_turn,True,coordinate_frame,units,tuple(codes),np.arange(len(xy)),np.isfinite(curvature))

@@ -195,6 +195,21 @@ Gate A is a synthetic geometry proof only: it independently measures each solver
 .venv/bin/python main.py
 ```
 
+## Stage 7C-5 — Corner-Aware Two-Line Centerline Support
+
+`CornerAwareTwoLineSolver` là extension experimental, giữ Phase 1A làm topology gate và fallback cho geometry mượt. Khi cả hai boundaries có đúng một corner tương ứng cùng chiều, solver chia boundaries thành các run trước/sau corner, dùng **arc-length correspondence trong từng run đã xác nhận**, rồi giữ đúng midpoint corner nguồn. Đây không phải pairing theo array index. Cấu hình thử nghiệm khai báo `corner_angle_deg=30°`, `corner_fraction_tolerance=0.15` và `resample_step_m=0.005`.
+
+Các fixture được hỗ trợ sau kiểm tra số học: straight, sharp 90° với corner reference `(0.6 m, 0 m)`, gentle S-curve và uneven/unequal sampling đã chứng minh. `TwoLineGeometryMetadata` nay có `source_indices` và `curvature_valid`; curvature chỉ unavailable ở discontinuity sắc, không ở segment curve đã qualified. Không có C-axis, speed hay execution command.
+
+`REFLEX_ORIENTATION_UNPROVEN`, `TURNBACK_UNSUPPORTED` và `AMBIGUOUS_CORNER_CORRESPONDENCE` là các rejection ổn định. Không có polygon orientation/inside-outside convention thì reflex 270° không được coi là supported. Boundary crossing, zero width, gaps, source provenance thiếu, units/frame sai tiếp tục fail closed. Gate B strict Vision→Path vẫn BLOCKED: synthetic calibration, `UNKNOWN` uncertainty và `UNCERTAIN` metric geometry không được nâng trust.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c5_corner_aware_centerline.py -v
+.venv/bin/python -m unittest tests/test_stage7c4_two_line_geometry.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
 ## Stage 7C-2A — Exact Resampling Lineage & Independent Projection Verification
 
 `resample_arc_length_with_lineage(...)` là API experimental tương thích ngược: `resample_arc_length(...)` vẫn trả đúng mảng pixel cũ, còn API mới trả pixel cùng endpoint source segment và fraction nội suy chính xác. `ResampledPixelGeometry` báo `PRESERVED`, `LIMITED` với các corner source bị bỏ qua, hoặc `UNAVAILABLE` khi toàn bộ geometry suy biến. Runtime truyền endpoint/fraction và source endpoint coordinates vào `VisionPointProvenance`; không dùng nearest-neighbor làm bằng chứng lineage.
