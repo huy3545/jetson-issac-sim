@@ -43,8 +43,8 @@ class TwoLineGeometryTests(unittest.TestCase):
         left=np.array([[0.,.1],[.5,.1],[.5,.6]]);right=np.array([[0.,-.1],[.7,-.1],[.7,.6]])
         result=self._plan(left,right);self.assertEqual(result.status,VisionPathStatus.VERIFIED)
         meta=TwoLineGeometryAnalyzer().analyze(result,left,right,coordinate_frame="workpiece_m",units="m")
-        self.assertEqual(meta.curvature_status,CurvatureStatus.UNAVAILABLE_AT_CORNER)
-        self.assertTrue(np.isnan(meta.curvature_m_inv).all());self.assertIn("CURVATURE_UNAVAILABLE_AT_SOURCE_CORNER",meta.reason_codes)
+        self.assertEqual(meta.curvature_status,CurvatureStatus.UNAVAILABLE)
+        self.assertTrue(np.isnan(meta.curvature_m_inv).all());self.assertIn("CORNER_POSITION_UNRESOLVED",meta.reason_codes)
 
     def test_declared_rejections_have_stable_reason_codes(self):
         crossing=self._plan(np.array([[0.,.1],[1.,-.1]]),np.array([[0.,-.1],[1.,.1]]));self.assertEqual(crossing.reason_codes,("BOUNDARY_INTERSECTION",))

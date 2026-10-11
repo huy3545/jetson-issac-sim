@@ -27,6 +27,14 @@ def _resample(points,count):
     distance=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(points,axis=0),axis=1))]
     target=np.linspace(0.,distance[-1],count)
     return np.column_stack([np.interp(target,distance,points[:,axis]) for axis in range(2)])
+def _distance(point,line):
+    best=float("inf")
+    for start,end in zip(line[:-1],line[1:]):
+        vector=end-start; denominator=float(vector@vector)
+        if denominator<=0: continue
+        fraction=float(np.clip(((point-start)@vector)/denominator,0.,1.))
+        best=min(best,float(np.linalg.norm(point-(start+fraction*vector))))
+    return best
 
 class CornerAwareTwoLineSolver:
     """Preserves one matched 90° source corner; no reflex/turnback inference."""
@@ -50,17 +58,9 @@ class CornerAwareTwoLineSolver:
         # Existing Phase 1A remains the topology gate: never construct a path
         # when it already reports invalid input/boundary contact/intersection.
         if baseline.overall_status is not SolverStatus.CONVERGED:return baseline
-        runs=[]
-        for lrun,rrun in ((left[:li+1],right[:ri+1]),(left[li:],right[ri:])):
-            count=max(2,int(np.ceil(max(_length(lrun),_length(rrun))/self.config.resample_step_m))+1)
-            run=(_resample(lrun,count)+_resample(rrun,count))/2
-            runs.append(run)
-        xy=np.vstack((runs[0],runs[1][1:]))
-        ds=np.linalg.norm(np.diff(xy,axis=0),axis=1)
-        if not np.all(ds>0):return self._reject("CENTERLINE_DEGENERATE")
-        s=np.r_[0.,np.cumsum(ds)]; widths=np.empty(len(xy)); widths.fill(np.nan)
-        segment=SolverSegment(xy,s,widths,np.ones(len(xy),bool),SolverStatus.CONVERGED,("CORNER_AWARE_ARC_LENGTH_CORRESPONDENCE",))
-        diagnostics=SolverDiagnostics(coverage_ratio=1.,excluded=("CORNER_AWARE_ARC_LENGTH_CORRESPONDENCE",))
-        return SolverResult((segment,),SolverStatus.CONVERGED,True,diagnostics)
+        # A sharp midpoint corner is generally not equidistant to both offset
+        # boundaries.  Until a corner medial-axis construction is independently
+        # qualified, fail closed instead of publishing a non-medial shortcut.
+        return self._reject("CORNER_MEDIAL_AXIS_UNVERIFIED")
     def _reject(self,code):
         return SolverResult((),SolverStatus.AMBIGUOUS,False,SolverDiagnostics(excluded=(code,)))

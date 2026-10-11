@@ -199,9 +199,20 @@ Gate A is a synthetic geometry proof only: it independently measures each solver
 
 `CornerAwareTwoLineSolver` là extension experimental, giữ Phase 1A làm topology gate và fallback cho geometry mượt. Khi cả hai boundaries có đúng một corner tương ứng cùng chiều, solver chia boundaries thành các run trước/sau corner, dùng **arc-length correspondence trong từng run đã xác nhận**, rồi giữ đúng midpoint corner nguồn. Đây không phải pairing theo array index. Cấu hình thử nghiệm khai báo `corner_angle_deg=30°`, `corner_fraction_tolerance=0.15` và `resample_step_m=0.005`.
 
-Các fixture được hỗ trợ sau kiểm tra số học: straight, sharp 90° với corner reference `(0.6 m, 0 m)`, gentle S-curve và uneven/unequal sampling đã chứng minh. `TwoLineGeometryMetadata` nay có `source_indices` và `curvature_valid`; curvature chỉ unavailable ở discontinuity sắc, không ở segment curve đã qualified. Không có C-axis, speed hay execution command.
+Các fixture được hỗ trợ sau kiểm tra số học: straight, gentle S-curve và uneven/unequal sampling. Kiểm toán Stage 7C-5A chứng minh candidate 90° tại corner reference `(0.6 m, 0 m)` có boundary-distance residual tối đa `0.041421356237 m`; vì thế 90° bị downgrade thành `CORNER_MEDIAL_AXIS_UNVERIFIED`, không còn được coi là medial centerline. `TwoLineGeometryMetadata` có `source_indices` unavailable mặc định và `curvature_valid`; curvature chỉ available ở segment curve đã qualified. Không có C-axis, speed hay execution command.
 
-`REFLEX_ORIENTATION_UNPROVEN`, `TURNBACK_UNSUPPORTED` và `AMBIGUOUS_CORNER_CORRESPONDENCE` là các rejection ổn định. Không có polygon orientation/inside-outside convention thì reflex 270° không được coi là supported. Boundary crossing, zero width, gaps, source provenance thiếu, units/frame sai tiếp tục fail closed. Gate B strict Vision→Path vẫn BLOCKED: synthetic calibration, `UNKNOWN` uncertainty và `UNCERTAIN` metric geometry không được nâng trust.
+`CORNER_MEDIAL_AXIS_UNVERIFIED`, `REFLEX_ORIENTATION_UNPROVEN`, `TURNBACK_UNSUPPORTED` và `AMBIGUOUS_CORNER_CORRESPONDENCE` là các rejection ổn định. Không có polygon orientation/inside-outside convention thì reflex 270° không được coi là supported. Boundary crossing, zero width, gaps, source provenance thiếu, units/frame sai tiếp tục fail closed. Gate B strict Vision→Path vẫn BLOCKED: synthetic calibration, `UNKNOWN` uncertainty và `UNCERTAIN` metric geometry không được nâng trust.
+
+## Stage 7C-5A — Corner Geometry Evidence & Metadata Integrity
+
+Stage 7C-5A thay thế claim corner không được chứng minh bằng evidence fail-closed. Full-path independent check dùng segment distance cho candidate 90° phát hiện residual `0.041421356237 m`, nên solver trả `CORNER_MEDIAL_AXIS_UNVERIFIED`. Không còn width `NaN`, coverage `1.0`, output index hay curvature giả cho corner bị reject. Với result không có path, coverage, width và source correspondence là unavailable; smooth-path metadata vẫn có arc length, tangent và curvature validity riêng.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c5a_corner_evidence.py -v
+.venv/bin/python -m unittest tests/test_stage7c5_corner_aware_centerline.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 
 ```bash
 .venv/bin/python -m unittest tests/test_stage7c5_corner_aware_centerline.py -v

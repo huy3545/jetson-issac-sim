@@ -16,14 +16,10 @@ class CornerAwareTests(unittest.TestCase):
         values=dict(frame_timestamp=1.,frame_clock_domain="sim",frame_id="corner",coordinate_frame="workpiece_m",units="m",left=self._line("left",boundary_left),right=self._line("right",boundary_right));values.update(changes)
         return VisionPathAdapter(solver=solver or CornerAwareTwoLineSolver(),require_point_provenance=True).plan(VisionResult(**values))
 
-    def test_sharp_90_corner_preserves_independent_corner_reference(self):
+    def test_sharp_90_corner_is_rejected_without_medial_axis_evidence(self):
         left=np.array([[0.,.1],[.5,.1],[.5,.6]]);right=np.array([[0.,-.1],[.7,-.1],[.7,.6]])
-        result=self._plan(left,right);self.assertEqual(result.status,VisionPathStatus.VERIFIED)
-        xy=result.solver_result.segments[0].xy;corner=np.array([.6,0.])
-        self.assertLess(np.min(np.linalg.norm(xy-corner,axis=1)),1e-12)
-        self.assertTrue(np.all(np.linalg.norm(np.diff(xy,axis=0),axis=1)>0));self.assertIn("CORNER_AWARE_ARC_LENGTH_CORRESPONDENCE",result.solver_result.segments[0].reason_codes)
-        metadata=TwoLineGeometryAnalyzer().analyze(result,left,right,coordinate_frame="workpiece_m",units="m")
-        self.assertEqual(metadata.curvature_status,CurvatureStatus.UNAVAILABLE_AT_CORNER);self.assertFalse(metadata.curvature_valid.any())
+        result=self._plan(left,right);self.assertEqual(result.status,VisionPathStatus.REJECTED)
+        self.assertEqual(result.reason_codes,("CORNER_MEDIAL_AXIS_UNVERIFIED",))
 
     def test_straight_s_curve_unequal_count_and_uneven_sampling_remain_supported(self):
         straight=self._plan(np.array([[0.,.1],[1.,.1]]),np.array([[0.,-.1],[1.,-.1]]));self.assertEqual(straight.status,VisionPathStatus.VERIFIED)
