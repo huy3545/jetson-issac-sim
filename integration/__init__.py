@@ -8,6 +8,8 @@ from .contracts import (
 )
 from .experimental_harness import ExperimentalIntegrationHarness, ExperimentalSafetyAssessment
 from .validation import CompatibilityValidator, MergeResult, ProvenanceMerger, ProvenanceResolver, ValidationOutcome
+from .independent_safety import (BoundaryVeto, IndependentSafetyValidator, MotionPlan, PathPlan,
+                                 SafetyAuditEvent, SafetyDecision, SafetyStatus, SyntheticMachineLimits, apply_boundary_veto)
 
 __all__ = (
     "AdmissionStatus", "ConfigurationKind", "ConfidenceStatus", "DerivationMethod",
@@ -16,5 +18,7 @@ __all__ = (
     "ProvenanceObservationStatus", "SyntheticConfiguration", "TimingStatus",
     "UncertaintyStatus",
     "CompatibilityValidator", "MergeResult", "ProvenanceMerger", "ProvenanceResolver", "ValidationOutcome",
+    "BoundaryVeto", "IndependentSafetyValidator", "MotionPlan", "PathPlan", "SafetyAuditEvent", "SafetyDecision",
+    "SafetyStatus", "SyntheticMachineLimits", "apply_boundary_veto",
     "ExperimentalIntegrationHarness", "ExperimentalSafetyAssessment",
 )

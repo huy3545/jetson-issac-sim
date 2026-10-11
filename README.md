@@ -440,4 +440,18 @@ Không có mutation framework dependency trong repository. Test `test_contract_i
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-2 — Independent SafetyDecision & Immutable Plans
+
+`integration.independent_safety` thêm `PathPlan` và `MotionPlan` immutable cho nghiên cứu. Mảng XYZ được defensive-copy thành read-only; `content_hash` là SHA-256 trên canonical serialization gồm coordinates và metadata quan trọng, không phải Python `hash()` hoặc chỉ ID. `MotionPlan.source_path_hash` phải khớp PathPlan thực tế, mỗi target giữ reference tới point path, và timing thiếu duration trả `TIMING_UNSPECIFIED`.
+
+`IndependentSafetyValidator` không dùng `SafetyMonitor` V1, không tin planner status và không import Controller. Nó tự kiểm tra run/correlation, path hash, lineage provenance, calibration/transform, qualification/uncertainty, gaps, frame/domain/units, target order, timing và giới hạn `SyntheticMachineLimits`. Mọi `SafetyDecision` đều `execution_authorized=False`; `ACCEPTED` chỉ nghĩa là đạt kiểm tra mô phỏng Stage 7B-2, không phải quyền điều khiển máy.
+
+`apply_boundary_veto` chặn downstream khi upstream hoặc SafetyDecision không `ACCEPTED`. Audit sink là passive; lỗi sink chuyển decision thành `BLOCKED` với `EVIDENCE_INCOMPLETE`, không cấp authorization. Stage này chưa mở Vision→Phase 3 bridge, không gọi MachineController và không triển khai execution mock.
+
+```bash
+.venv/bin/python -m unittest tests/test_independent_safety.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim
