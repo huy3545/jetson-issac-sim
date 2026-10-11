@@ -162,6 +162,26 @@ Kết quả `REJECT` áp dụng cho invalid topology hoặc reference deviation 
 .venv/bin/python main.py
 ```
 
+## Stage 7C-3 — Vision → Path Qualification & Two-Line Geometry
+
+| Public API | Input / frame | Evidence gate | Output / current blocker |
+| --- | --- | --- | --- |
+| `VisionPathAdapter.plan()` | observed XY, `m`, non-camera frame | confidence, tracking, boundary topology | `VisionPathResult`; only synthetic geometry proof can be `VERIFIED` |
+| `PlanarMedialAxisSolver.solve()` | two open XY boundaries | finite, non-touching, non-intersecting channel | centerline `SolverResult`, or explicit topology diagnostics |
+| metric projection + `MetricGeometryBridge` | Vision pixels, RGB-D, transform evidence | lineage, depth, frame/time, calibration identity | immutable metric/bridge result, deliberately `UNCERTAIN` / `BLOCKED` |
+| `SurfaceMapper` + `qualify_surface_segments()` | metric XY + heightmap / XYZ | source provenance and configured uncertainty | Phase 3 remains blocked when uncertainty is unknown |
+
+`VisionPathAdapter(require_point_provenance=True)` rejects either boundary with `*_POINT_PROVENANCE_UNAVAILABLE`. It also rejects both `*_CORNER_PRESERVATION_LIMITED` inputs, preserving resampling diagnostics instead of smoothing a corner. `VisionPathQualificationHarness` calls Vision → projection → bridge → Path public APIs in order, but records the expected strict blockage: synthetic calibration, `UNCERTAIN` metric geometry and `UNKNOWN` uncertainty never become verified evidence.
+
+Gate A is a synthetic geometry proof only: it independently measures each solver centerline point against both boundaries and verifies residual/boundary separation for the supported straight channel. Corner, reflex, turnback, curve, sampling and crossing cases retain their solver rejection/diagnostics where unsupported. Gate B remains blocked; no controller is imported and `execution_authorized=False`.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c3_vision_path_qualification.py -v
+.venv/bin/python -m unittest tests/test_stage7c2a_exact_lineage.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
 ## Stage 7C-2A — Exact Resampling Lineage & Independent Projection Verification
 
 `resample_arc_length_with_lineage(...)` là API experimental tương thích ngược: `resample_arc_length(...)` vẫn trả đúng mảng pixel cũ, còn API mới trả pixel cùng endpoint source segment và fraction nội suy chính xác. `ResampledPixelGeometry` báo `PRESERVED`, `LIMITED` với các corner source bị bỏ qua, hoặc `UNAVAILABLE` khi toàn bộ geometry suy biến. Runtime truyền endpoint/fraction và source endpoint coordinates vào `VisionPointProvenance`; không dùng nearest-neighbor làm bằng chứng lineage.

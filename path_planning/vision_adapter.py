@@ -17,8 +17,8 @@ class VisionPathResult:
 
 class VisionPathAdapter:
     """Accept only observed, verified metric boundaries; never invent a transform."""
-    def __init__(self, solver: PlanarMedialAxisSolver|None=None, min_confidence=.45):
-        self.solver=solver or PlanarMedialAxisSolver(); self.min_confidence=min_confidence
+    def __init__(self, solver: PlanarMedialAxisSolver|None=None, min_confidence=.45, require_point_provenance=False):
+        self.solver=solver or PlanarMedialAxisSolver(); self.min_confidence=min_confidence; self.require_point_provenance=require_point_provenance
     def _validate(self,line,name):
         reasons=[]
         if line.points is None: reasons.append(f"{name}_MISSING")
@@ -31,6 +31,11 @@ class VisionPathAdapter:
         if line.depth_valid is not None and not np.all(line.depth_valid): reasons.append(f"{name}_DEPTH_INVALID")
         if line.orientation_source is OrientationSource.AMBIGUOUS: reasons.append("AMBIGUOUS_IDENTITY")
         if line.contour_type is ContourType.CLOSED: reasons.append("CLOSED_CONTOUR_UNSUPPORTED")
+        if "RESAMPLING_CORNER_PRESERVATION_LIMITED" in line.provenance_diagnostics:
+            reasons.append(f"{name}_CORNER_PRESERVATION_LIMITED")
+        if self.require_point_provenance:
+            if line.point_provenance is None or not all(point.lineage_available for point in line.point_provenance):
+                reasons.append(f"{name}_POINT_PROVENANCE_UNAVAILABLE")
         return reasons
     def plan(self, vision: VisionResult)->VisionPathResult:
         reasons=[]
