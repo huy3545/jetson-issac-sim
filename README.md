@@ -182,6 +182,19 @@ Gate A is a synthetic geometry proof only: it independently measures each solver
 .venv/bin/python main.py
 ```
 
+## Stage 7C-4 — Two-Line Centerline Geometry, Corners & Curvature
+
+`TwoLineGeometryAnalyzer` chỉ phân tích `VisionPathAdapter.plan()` output; nó không thay Phase 1A solver, không làm mượt boundary và không tạo Motion command. Metadata công bố arc length, unit tangent, curvature status, signed turn class, continuity, frame/units và diagnostics. Các source corner rời rạc trả `CURVATURE_UNAVAILABLE_AT_SOURCE_CORNER` với curvature `NaN`; direction-change nhỏ của curve lấy mẫu mịn không bị gán nhầm là corner. Interior/reflex polygon angle hoặc C-axis tool orientation không được suy từ metadata này.
+
+**SUPPORTED:** straight centerline; gentle S-curve với tolerance synthetic công bố **15 mm**. **UNSUPPORTED OR SAFELY REJECTED:** sharp 90-degree corners chỉ được giữ diagnostic/curvature unavailable; 180-degree turnback và reflex 270-degree chưa có hình học được chứng minh; large-radius fixture thất bại continuity; crossing, duplicate, zero-width, gap, invalid frame/units và missing provenance bị từ chối bằng reason code thay vì sửa geometry. Gate A4 là `PASS WITH DECLARED GEOMETRY LIMITATIONS`; Gate B strict Vision→Path vẫn `BLOCKED`; Stage 7C vẫn chưa hoàn thành đầy đủ. Synthetic calibration, uncertainty `UNKNOWN` và metric geometry `UNCERTAIN` không được nâng trust.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c4_two_line_geometry.py -v
+.venv/bin/python -m unittest tests/test_stage7c3_vision_path_qualification.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
 ## Stage 7C-2A — Exact Resampling Lineage & Independent Projection Verification
 
 `resample_arc_length_with_lineage(...)` là API experimental tương thích ngược: `resample_arc_length(...)` vẫn trả đúng mảng pixel cũ, còn API mới trả pixel cùng endpoint source segment và fraction nội suy chính xác. `ResampledPixelGeometry` báo `PRESERVED`, `LIMITED` với các corner source bị bỏ qua, hoặc `UNAVAILABLE` khi toàn bộ geometry suy biến. Runtime truyền endpoint/fraction và source endpoint coordinates vào `VisionPointProvenance`; không dùng nearest-neighbor làm bằng chứng lineage.

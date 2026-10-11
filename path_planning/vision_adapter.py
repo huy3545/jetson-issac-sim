@@ -49,7 +49,9 @@ class VisionPathAdapter:
             for point in np.vstack((vision.left.points,vision.right.points)):
                 other=vision.right.points if any(np.array_equal(point,p) for p in vision.left.points) else vision.left.points
                 for a,b in zip(other[:-1],other[1:]):
-                    vector=b-a; t=np.clip(np.dot(point-a,vector)/np.dot(vector,vector),0.,1.)
+                    vector=b-a; denominator=np.dot(vector,vector)
+                    if denominator<=0: continue
+                    t=np.clip(np.dot(point-a,vector)/denominator,0.,1.)
                     if np.linalg.norm(point-(a+t*vector)) <= self.solver.config.experimental_touch_tol_m:
                         reasons.append("BOUNDARY_TOUCH"); break
                 if reasons: break
