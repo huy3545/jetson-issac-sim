@@ -1,6 +1,64 @@
 """Pure V1.1 helpers; V1's process() remains the compatibility entry point."""
+from dataclasses import dataclass
 import numpy as np
 from .contracts import OrientationSource
+
+@dataclass(frozen=True)
+class ResampleSegmentReference:
+    start_index:int|None; end_index:int|None; fraction:float|None; available:bool
+
+@dataclass(frozen=True)
+class ResampledPixelGeometry:
+    points:np.ndarray
+    lineage:tuple[ResampleSegmentReference,...]
+    omitted_corner_indices:tuple[int,...]=()
+    corner_status:str="PRESERVED"
+    def __post_init__(self):
+        array=np.ascontiguousarray(np.array(self.points,dtype=float,copy=True))
+        object.__setattr__(self,"points",np.frombuffer(array.tobytes(),dtype=array.dtype).reshape(array.shape))
+
+def _interior_corners(points, closed):
+    stop=len(points) if closed else len(points)-1
+    corners=[]
+    for index in range(1,stop):
+        before=points[index]-points[index-1]; after=points[(index+1)%len(points)]-points[index]
+        if np.linalg.norm(before)>1e-12 and np.linalg.norm(after)>1e-12:
+            cosine=np.clip(np.dot(before,after)/(np.linalg.norm(before)*np.linalg.norm(after)),-1.,1.)
+            if not np.isclose(np.arccos(cosine),0.,atol=1e-10): corners.append(index)
+    return corners
+
+def resample_arc_length_with_lineage(points:np.ndarray,count:int,*,closed:bool=False)->ResampledPixelGeometry:
+    """Return legacy-equivalent samples plus exact source segment/fraction evidence.
+
+    Zero-length-only input has no deterministic supporting segment and is returned
+    with unavailable lineage rather than manufactured provenance.
+    """
+    source=np.asarray(points,dtype=float)
+    if source.ndim!=2 or source.shape[1:]!=(2,) or len(source)==0 or not np.isfinite(source).all() or count<1:
+        raise ValueError("points must be finite Nx2 and count must be positive")
+    work=source if not closed or np.array_equal(source[0],source[-1]) else np.vstack((source,source[0]))
+    segment_lengths=np.linalg.norm(np.diff(work,axis=0),axis=1)
+    distances=np.r_[0.,np.cumsum(segment_lengths)]
+    samples=np.linspace(0.,distances[-1],count)
+    output=np.column_stack([np.interp(samples,distances,work[:,axis]) for axis in range(2)])
+    if distances[-1]<=1e-12:
+        lineage=tuple(ResampleSegmentReference(None,None,None,False) for _ in output)
+        return ResampledPixelGeometry(output,lineage,(),"UNAVAILABLE")
+    lineage=[]
+    for distance in samples:
+        index=int(np.searchsorted(distances,distance,side="right")-1)
+        index=min(max(index,0),len(segment_lengths)-1)
+        while index<len(segment_lengths)-1 and segment_lengths[index]<=1e-12: index+=1
+        length=segment_lengths[index]
+        if length<=1e-12:
+            lineage.append(ResampleSegmentReference(None,None,None,False)); continue
+        fraction=float(np.clip((distance-distances[index])/length,0.,1.))
+        lineage.append(ResampleSegmentReference(index,(index+1)%len(source),fraction,True))
+    # A non-collinear original vertex must occur verbatim in samples to claim it
+    # was preserved.  The geometry is still returned for compatibility.
+    corners=_interior_corners(source,closed)
+    omitted=tuple(index for index in corners if not np.any(np.all(np.isclose(output,source[index],atol=1e-10),axis=1)))
+    return ResampledPixelGeometry(output,tuple(lineage),omitted,"LIMITED" if omitted else "PRESERVED")
 
 def resample_arc_length(points: np.ndarray, count: int) -> np.ndarray:
     points=np.asarray(points,dtype=float); dist=np.r_[0,np.cumsum(np.linalg.norm(np.diff(points,axis=0),axis=1))]

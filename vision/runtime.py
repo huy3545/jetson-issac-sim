@@ -8,7 +8,7 @@ from .contracts import (ContourType, LineVisionResult, ObservationStatus, Overal
                         OrientationSource, PointDerivationMethod, TrackingState,
                         VisionPointProvenance, VisionResult)
 from .tracking import LineTracker
-from .v11 import resample_arc_length, sample_depth_valid, semantic_order
+from .v11 import resample_arc_length, resample_arc_length_with_lineage, sample_depth_valid, semantic_order
 from .vision_processor import VisionProcessor
 
 @dataclass
@@ -52,22 +52,28 @@ class ExperimentalVisionRuntime:
         status,state,age=tracker.update(observed,timestamp)
         if observed:
             raw_points=np.asarray(points,dtype=float)
-            points=resample_arc_length(raw_points,self.config.experimental_depth_resample_points)
+            resampled=resample_arc_length_with_lineage(raw_points,self.config.experimental_depth_resample_points,
+                closed=np.linalg.norm(raw_points[0]-raw_points[-1])<2)
+            points=resampled.points
             valid,ratio,ranges=sample_depth_valid(frame.depth,points)
             quality=min(1.,cv2.Laplacian(cv2.cvtColor(frame.rgb,cv2.COLOR_RGB2GRAY),cv2.CV_64F).var()/max(self.config.experimental_blur_laplacian_min,1e-9))
             confidence=ratio*quality; memory.points=points; memory.timestamp=timestamp
             contour=ContourType.CLOSED if np.linalg.norm(points[0]-points[-1]) < 2 else ContourType.OPEN
             # Resampling changes the point identity.  The nearest raw trace index is
             # disclosed, but no external source-point identifier is invented.
-            indices=np.argmin(((points[:,None,:]-raw_points[None,:,:])**2).sum(axis=2),axis=1)
             provenance=tuple(VisionPointProvenance(
-                line_id=line_id,source_index=int(index),pixel_xy=tuple(point),
+                line_id=line_id,source_index=reference.start_index,pixel_xy=tuple(point),
                 observation_status=status,tracking_state=state,
                 derivation_method=PointDerivationMethod.RESAMPLING,
-                lineage_available=True,confidence_reference="line_confidence",
-                timestamp=timestamp,clock_domain=frame.clock_domain)
-                for point,index in zip(points,indices))
-            return LineVisionResult(points,status,state,confidence,0.,valid,ratio,ranges,OrientationSource.REFERENCE,0.,confidence>=self.config.experimental_min_observation_confidence,(),contour,provenance)
+                lineage_available=reference.available,confidence_reference="line_confidence",
+                timestamp=timestamp,clock_domain=frame.clock_domain,
+                source_segment_start_index=reference.start_index,source_segment_end_index=reference.end_index,
+                interpolation_fraction=reference.fraction,
+                source_segment_start_xy=None if reference.start_index is None else tuple(raw_points[reference.start_index]),
+                source_segment_end_xy=None if reference.end_index is None else tuple(raw_points[reference.end_index]))
+                for point,reference in zip(points,resampled.lineage))
+            diagnostics=() if resampled.corner_status=="PRESERVED" else ("RESAMPLING_CORNER_PRESERVATION_LIMITED",)
+            return LineVisionResult(points,status,state,confidence,0.,valid,ratio,ranges,OrientationSource.REFERENCE,0.,confidence>=self.config.experimental_min_observation_confidence,(),contour,provenance,diagnostics)
         uncertainty=float('inf') if memory.timestamp is None else age/self.config.experimental_tracking_timeout_ms*self.config.experimental_roi_prediction_expansion_px
         if state is TrackingState.PREDICTING and memory.points is not None and uncertainty<=self.config.experimental_roi_prediction_expansion_px:
             provenance=tuple(VisionPointProvenance(line_id=line_id,source_index=None,pixel_xy=tuple(point),

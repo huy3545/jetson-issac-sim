@@ -28,6 +28,11 @@ class VisionPointProvenance:
     confidence_reference: str | None = None
     timestamp: float | None = None
     clock_domain: str | None = None
+    source_segment_start_index: int | None = None
+    source_segment_end_index: int | None = None
+    interpolation_fraction: float | None = None
+    source_segment_start_xy: tuple[float, float] | None = None
+    source_segment_end_xy: tuple[float, float] | None = None
     schema_version: str = VISION_POINT_PROVENANCE_SCHEMA_VERSION
 
     def __post_init__(self):
@@ -52,6 +57,17 @@ class VisionPointProvenance:
             raise ValueError("source_references must be non-empty strings")
         if self.timestamp is not None and not np.isfinite(self.timestamp):
             raise ValueError("timestamp must be finite when supplied")
+        for index in (self.source_segment_start_index, self.source_segment_end_index):
+            if index is not None and (isinstance(index, bool) or index < 0):
+                raise ValueError("source segment indices must be non-negative")
+        if self.interpolation_fraction is not None and (not np.isfinite(self.interpolation_fraction) or not 0. <= self.interpolation_fraction <= 1.):
+            raise ValueError("interpolation_fraction must be in [0, 1]")
+        for name in ("source_segment_start_xy", "source_segment_end_xy"):
+            value=getattr(self,name)
+            if value is not None:
+                array=np.asarray(value,dtype=float)
+                if array.shape!=(2,) or not np.isfinite(array).all(): raise ValueError(f"{name} must be finite xy")
+                object.__setattr__(self,name,(float(array[0]),float(array[1])))
 
 @dataclass(frozen=True)
 class LineVisionResult:
@@ -69,6 +85,7 @@ class LineVisionResult:
     missing_ranges: tuple[tuple[int,int], ...] = ()
     contour_type: ContourType = ContourType.OPEN
     point_provenance: tuple[VisionPointProvenance, ...] | None = None
+    provenance_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self):
         if self.points is not None:
@@ -84,6 +101,8 @@ class LineVisionResult:
                 raise ValueError("point_provenance must contain VisionPointProvenance")
             if self.points is None or len(self.point_provenance) != len(self.points):
                 raise ValueError("point_provenance must align with points")
+        if not isinstance(self.provenance_diagnostics, tuple) or not all(isinstance(item, str) and item for item in self.provenance_diagnostics):
+            raise ValueError("provenance_diagnostics must be non-empty strings")
 
 @dataclass(frozen=True)
 class VisionResult:

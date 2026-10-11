@@ -83,3 +83,36 @@ class MetricBridgeVerifier:
                 if point.depth_samples is None: reasons.append("DEPTH_LINEAGE_UNAVAILABLE")
                 if point.intrinsics_id!=bridge.calibration_id or point.transform_id!=bridge.transform_id: reasons.append("CALIBRATION_TRANSFORM_MISMATCH")
         return tuple(dict.fromkeys(reasons))
+
+    def verify_projection(self,vision,metric,bridge,depth,calibration,evidence,*,atol=1e-9):
+        """Independently recompute the published pinhole/bilinear equations."""
+        reasons=list(self.verify_lineage(vision,metric,bridge))
+        if getattr(evidence,"transform_matrix",None) is None or metric.transform_evidence!=evidence:
+            reasons.append("TRANSFORM_EVIDENCE_MISMATCH")
+            return tuple(dict.fromkeys(reasons))
+        image=np.asarray(depth,dtype=float)
+        if image.ndim!=2: return tuple(dict.fromkeys(reasons+["INVALID_DEPTH_IMAGE"]))
+        for segment in metric.segments:
+            if segment.xyz is None or segment.point_provenance is None: continue
+            for index,(xyz,point) in enumerate(zip(segment.xyz,segment.point_provenance)):
+                u,v=point.pixel_xy; u0,v0=int(np.floor(u)),int(np.floor(v)); u1=min(u0+1,image.shape[1]-1); v1=min(v0+1,image.shape[0]-1)
+                expected_samples=((v0,u0,(1-(u-u0))*(1-(v-v0))), (v0,u1,(u-u0)*(1-(v-v0))),
+                                  (v1,u0,(1-(u-u0))*(v-v0)), (v1,u1,(u-u0)*(v-v0)))
+                if point.depth_samples is None or len(point.depth_samples)!=4:
+                    reasons.append("DEPTH_LINEAGE_UNAVAILABLE"); continue
+                if any((row,col) != (erow,ecol) for (row,col,_),(erow,ecol,_) in zip(point.depth_samples,expected_samples)):
+                    reasons.append("DEPTH_SAMPLE_COORDINATE_MISMATCH")
+                if any(not np.isclose(weight,eweight,atol=atol,rtol=0.) for (_,_,weight),(_,_,eweight) in zip(point.depth_samples,expected_samples)):
+                    reasons.append("DEPTH_WEIGHT_MISMATCH")
+                z=sum(image[row,col]*weight for row,col,weight in expected_samples)
+                camera=np.array([(u-calibration.cx)*z/calibration.fx,(v-calibration.cy)*z/calibration.fy,z,1.])
+                expected=(camera @ evidence.transform_matrix.T)[:3]
+                if not np.allclose(xyz,expected,atol=atol,rtol=0.): reasons.append("PROJECTED_XYZ_MISMATCH")
+                source=point.vision_point
+                if source is not None and source.derivation_method.value=="RESAMPLING":
+                    values=(source.source_segment_start_xy,source.source_segment_end_xy,source.interpolation_fraction)
+                    if any(value is None for value in values): reasons.append("EXACT_RESAMPLING_LINEAGE_UNAVAILABLE")
+                    else:
+                        start,end,fraction=values
+                        if not np.allclose(np.asarray(start)*(1-fraction)+np.asarray(end)*fraction,point.pixel_xy,atol=atol,rtol=0.): reasons.append("RESAMPLING_INTERPOLATION_MISMATCH")
+        return tuple(dict.fromkeys(reasons))

@@ -162,6 +162,19 @@ Kết quả `REJECT` áp dụng cho invalid topology hoặc reference deviation 
 .venv/bin/python main.py
 ```
 
+## Stage 7C-2A — Exact Resampling Lineage & Independent Projection Verification
+
+`resample_arc_length_with_lineage(...)` là API experimental tương thích ngược: `resample_arc_length(...)` vẫn trả đúng mảng pixel cũ, còn API mới trả pixel cùng endpoint source segment và fraction nội suy chính xác. `ResampledPixelGeometry` báo `PRESERVED`, `LIMITED` với các corner source bị bỏ qua, hoặc `UNAVAILABLE` khi toàn bộ geometry suy biến. Runtime truyền endpoint/fraction và source endpoint coordinates vào `VisionPointProvenance`; không dùng nearest-neighbor làm bằng chứng lineage.
+
+`MetricBridgeVerifier.verify_projection(...)` độc lập tính lại bilinear depth samples/weights, depth, pinhole camera XYZ và reference XYZ từ Vision, depth, intrinsics và transform evidence. Verifier phát hiện source-order, endpoint/fraction, depth coordinate/weight, transform evidence hoặc XYZ bị chỉnh sửa. Synthetic calibration vẫn được gắn nhãn synthetic; bridge và strict Path admission vẫn `BLOCKED`, `execution_authorized=False`.
+
+```bash
+.venv/bin/python -m unittest tests/test_stage7c2a_exact_lineage.py -v
+.venv/bin/python -m unittest tests/test_stage7c2_point_lineage.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
 ## PathPlanner V1.1 — Phase 1B
 
 `path_planning/vision_adapter.py` là cầu nối experimental từ `VisionResult` sang solver planar Phase 1a. Nó không thay đổi `PathPlanner.plan()` V1, compatibility mode, Motion Planning hoặc Machine Controller.
