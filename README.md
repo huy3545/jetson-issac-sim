@@ -345,6 +345,18 @@ The artifact carries fixed Stage 6D variable ordering and PSD covariance blocks 
 .venv/bin/python main.py
 ```
 
+## Vision V1.1 — Experimental Cross-Point Covariance Stage 6J
+
+`path_planning.cross_point_covariance` adds the `1.2-cross-point` artifact schema for small point sets. Its global ordering is each point's `[u,v,z00,z10,z01,z11]` followed once by shared `[fx,fy,cx,cy,tx,ty,tz,rx,ry,rz]`. Point IDs/order, frame/time/domain, calibration/transform IDs and shared uncertainty identity are explicit; matching numerical values never imply shared provenance.
+
+The global covariance has shape `(6N+10)²`; propagation uses one global Jacobian `(3N)×(6N+10)` and preserves all diagonal and off-diagonal 3×3 XYZ blocks. Dense processing is limited to 32 points (maximum input covariance 202×202, about 0.33 MB float64) and oversized requests are rejected before NumPy covariance allocation. Results remain immutable, experimental, `UNCERTAIN`, `UNKNOWN` and non-executable.
+
+```bash
+.venv/bin/python -m unittest tests/test_cross_point_covariance.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
+
 ### Advanced & Partial Geometry
 
 `path_planning.advanced_geometry.AdvancedGeometryPlanner` là API experimental bổ sung cho Phase 1B. `plan_partial(left, right, left_valid, right_valid)` tạo các `GeometrySegment` độc lập theo từng run quan sát hợp lệ; nó không nội suy hoặc nối VERIFIED geometry qua gap. Segment mang `VERIFIED`, `INVALID` hoặc `UNCERTAIN`, input range và diagnostics.

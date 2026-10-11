@@ -15,6 +15,12 @@ BLOCKS = {"pixel": (slice(0,2), (2,2)), "depth": (slice(2,6), (4,4)),
 def _ro(value):
     out=np.array(value,dtype=float,copy=True);out.setflags(write=False);return out
 
+def compose_full_jacobian(point, depth_samples, calibration, rotation, point_reference):
+    """Compose the Stage 6H 3x16 Jacobian from existing Stage 6D Jacobians."""
+    u,v=point;a,b=u-np.floor(u),v-np.floor(v);w=np.array([(1-a)*(1-b),a*(1-b),(1-a)*b,a*b])
+    z=float(w@np.asarray(depth_samples,float));jc=pinhole_jacobian(u,v,z,calibration.fx,calibration.fy,calibration.cx,calibration.cy)
+    J=np.zeros((3,16));J[:,:2]=rotation@jc[:,:2];J[:,2:6]=rotation@np.outer(jc[:,2],w);J[:,6:10]=rotation@jc[:,3:];J[:,10:]=extrinsic_jacobian(point_reference);return J
+
 @dataclass(frozen=True)
 class FullCovarianceEvidence:
     artifact_id: str; artifact_version: str; source_id: str; camera_frame: str; reference_frame: str
@@ -89,7 +95,7 @@ class ExperimentalFullCovariancePropagator:
     @staticmethod
     def jacobian(point,depth,calibration,R,pref):
         u,v=point;u0,v0=np.floor(point).astype(int);u1,v1=min(u0+1,depth.shape[1]-1),min(v0+1,depth.shape[0]-1);a,b=u-u0,v-v0;w=np.array([(1-a)*(1-b),a*(1-b),(1-a)*b,a*b]);z=w@np.array([depth[v0,u0],depth[v0,u1],depth[v1,u0],depth[v1,u1]])
-        jc=pinhole_jacobian(u,v,z,calibration.fx,calibration.fy,calibration.cx,calibration.cy);J=np.zeros((3,16));J[:,:2]=R@jc[:,:2];J[:,2:6]=R@np.outer(jc[:,2],w);J[:,6:10]=R@jc[:,3:];J[:,10:]=extrinsic_jacobian(pref);return J
+        return compose_full_jacobian(point,[depth[v0,u0],depth[v0,u1],depth[v1,u0],depth[v1,u1]],calibration,R,pref)
     @staticmethod
     def _invalid(projection,codes):
         metric=getattr(projection,"metric_result",None);return XYZUncertaintyResult((),metric.source_id if metric else None,metric.camera_frame if metric else None,metric.reference_frame if metric else None,"m",metric.timestamp if metric else None,metric.clock_domain if metric else None,metric.transform_evidence if metric else None,metric.calibration_evidence if metric else None,None,getattr(projection.calibration,"trust",None) if projection else None,NumericalPropagationStatus.INVALID,MetricUncertaintyStatus.UNKNOWN,codes)
