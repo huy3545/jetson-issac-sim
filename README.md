@@ -469,4 +469,18 @@ Không có mutation framework dependency trong repository. Test `test_contract_i
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-3 — FSM, Coordinator & Structured Audit
+
+`integration.coordinator.IntegrationCoordinator` là entrypoint experimental độc lập với `main.py`. FSM dùng bảng transition cố định: `IDLE → SCAN → PREVIEW → CONFIRM → CUT`; lỗi evidence chuyển `HOLD`, và `HOLD`/`FAULT` chỉ về `IDLE` qua reset có audit. `CUT` chỉ là trạng thái logic mô phỏng, không phát target, không gọi Controller và `execution_authorized` luôn `False`.
+
+Boundary registry cố định gồm `vision-path`, `path-motion`, `motion-safety` và `safety-simulation-cut`; boundary cuối luôn protected. Coordinator dùng `IndependentSafetyValidator` và `apply_boundary_veto`, không tự tạo SafetyDecision. Timestamp khác chỉ được chấp nhận khi có `SynchronizationPolicy` versioned; nếu không có bằng chứng sync, kết quả vào `HOLD` với `MACHINE_STATE_TIME_UNVERIFIED`.
+
+`CoordinatorAuditEvent` giữ thứ tự deterministic, FSM states, contract hashes, safety reference, reason codes và audit completeness. Audit sink failure dẫn đến `HOLD` với evidence incomplete, không crash Legacy V1.
+
+```bash
+.venv/bin/python -m unittest tests/test_integration_coordinator.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim

@@ -11,6 +11,8 @@ from .validation import CompatibilityValidator, MergeResult, ProvenanceMerger, P
 from .independent_safety import (BoundaryVeto, IndependentSafetyValidator, MotionPlan, PathPlan,
                                  SafetyAuditEvent, SafetyDecision, SafetyStatus, SyntheticMachineLimits, apply_boundary_veto)
 from .independent_safety import MachineStateEvidenceStatus, SyntheticMachineState
+from .coordinator import (BOUNDARY_REGISTRY, CoordinatorAuditEvent, IntegrationCoordinator,
+    IntegrationCoordinatorResult, IntegrationState, SynchronizationPolicy, TransitionResult)
 
 __all__ = (
     "AdmissionStatus", "ConfigurationKind", "ConfidenceStatus", "DerivationMethod",
@@ -22,5 +24,7 @@ __all__ = (
     "BoundaryVeto", "IndependentSafetyValidator", "MotionPlan", "PathPlan", "SafetyAuditEvent", "SafetyDecision",
     "SafetyStatus", "SyntheticMachineLimits", "apply_boundary_veto",
     "MachineStateEvidenceStatus", "SyntheticMachineState",
+    "BOUNDARY_REGISTRY", "CoordinatorAuditEvent", "IntegrationCoordinator", "IntegrationCoordinatorResult",
+    "IntegrationState", "SynchronizationPolicy", "TransitionResult",
     "ExperimentalIntegrationHarness", "ExperimentalSafetyAssessment",
 )
