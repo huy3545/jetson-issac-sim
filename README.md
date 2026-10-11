@@ -478,6 +478,10 @@ Boundary registry cố định gồm `vision-path`, `path-motion`, `motion-safet
 
 `CoordinatorAuditEvent` giữ thứ tự deterministic, FSM states, contract hashes, safety reference, reason codes và audit completeness. Audit sink failure dẫn đến `HOLD` với evidence incomplete, không crash Legacy V1.
 
+Stage 7B-3A sửa audit consistency: mọi event ghi đúng `TransitionResult.previous` và `next`; lỗi audit ở SCAN, PREVIEW, CONFIRM hoặc CUT đều đưa FSM về `HOLD`, đặt `audit_complete=False` và không thể trả `ACCEPTED`. Reset cũng có event bắt buộc; nếu sink reset lỗi, FSM giữ trạng thái cũ và trả `EVIDENCE_INCOMPLETE`.
+
+`SynchronizationPolicy(version, max_delta_s)` chỉ là **giả định timing synthetic đã khai báo trong test**, không phải bằng chứng synchronization độc lập của camera/machine thật. Nếu timestamp khác nhau mà không có policy rõ ràng, coordinator trả `MACHINE_STATE_TIME_UNVERIFIED` và giữ `HOLD`.
+
 ```bash
 .venv/bin/python -m unittest tests/test_integration_coordinator.py -v
 .venv/bin/python -m unittest discover -s tests -q
