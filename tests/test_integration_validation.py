@@ -2,20 +2,20 @@
 import unittest
 
 from integration.contracts import (ConfidenceStatus, DerivationMethod, PointProvenance,
-    ProvenanceObservationStatus)
+    ProvenanceObservationStatus, UncertaintyStatus)
 from integration.validation import CompatibilityValidator, ProvenanceResolver
 
 
 def root(point_id="root", **overrides):
     data=dict(point_id=point_id,source_point_ids=(),source_run_id="run-a",source_frame_id="frame-a",segment_id="segment-a",
       observation_status=ProvenanceObservationStatus.OBSERVED,confidence_status=ConfidenceStatus.VERIFIED,confidence_value=.9,
-      uncertainty_status="KNOWN",timestamp=1.,clock_domain="sim",coordinate_frame="workpiece_m",units="m",
+      uncertainty_status=UncertaintyStatus.KNOWN,timestamp=1.,clock_domain="sim",coordinate_frame="workpiece_m",units="m",
       calibration_id="cal-a",transform_id="tf-a",config_version="cfg-a",derivation_method=DerivationMethod.OBSERVATION)
     data.update(overrides);return PointProvenance(**data)
 def derived(point_id="derived",sources=("root",),**overrides):
     data=dict(point_id=point_id,source_point_ids=sources,source_run_id="run-a",source_frame_id="frame-a",segment_id="segment-a",
       observation_status=ProvenanceObservationStatus.OBSERVED,confidence_status=ConfidenceStatus.VERIFIED,confidence_value=.8,
-      uncertainty_status="KNOWN",timestamp=1.,clock_domain="sim",coordinate_frame="workpiece_m",units="m",
+      uncertainty_status=UncertaintyStatus.KNOWN,timestamp=1.,clock_domain="sim",coordinate_frame="workpiece_m",units="m",
       calibration_id="cal-a",transform_id="tf-a",config_version="cfg-a",derivation_method=DerivationMethod.MIDPOINT)
     data.update(overrides);return PointProvenance(**data)
 

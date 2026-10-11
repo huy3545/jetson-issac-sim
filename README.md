@@ -425,4 +425,19 @@ Structured audit logging mặc định là in-memory và passive: lỗi sink ch�
 .venv/bin/python -m unittest discover -s tests -q
 .venv/bin/python main.py
 ```
+
+## Stage 7B-1b — Remaining Contract Integrity
+
+Stage 7B-1b siết integrity mà không thay solver hoặc Legacy V1. `ProvenanceResolver` yêu cầu dictionary key đúng bằng `PointProvenance.point_id`, kiểm tra compatibility của từng cạnh trong lineage và hỗ trợ timestamp tolerance chỉ khi caller khai báo chính sách sync hữu hạn. `ProvenanceMerger` là helper production cho interpolation, resampling, smoothing, midpoint và coordinate transform: nó giữ toàn bộ source references, chặn source predicted/unknown hoặc metadata không tương thích, và tạo derived point với confidence/uncertainty `UNKNOWN` thay vì tự nâng trust.
+
+Contracts từ chối `ACCEPTED` có rejection reason, bool tại identifier/numeric fields, uncertainty enum lạ, nested run/event sai run-correlation và final status trái với record `BLOCKED`. Motion timestamp đơn lẻ không chứng minh timing readiness; khi không có duration, `MotionTimingRecord` trả `TIMING_UNSPECIFIED`.
+
+Không có mutation framework dependency trong repository. Test `test_contract_integrity.py` dùng mutation cases độc lập: cố tạo accepted record có rejection reason và resolver registry có key khác `point_id`; cả hai phải bị production guard từ chối.
+
+```bash
+.venv/bin/python -m unittest tests/test_contract_integrity.py -v
+.venv/bin/python -m unittest tests/test_integration_validation.py -v
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/python main.py
+```
 # jetson-issac-sim

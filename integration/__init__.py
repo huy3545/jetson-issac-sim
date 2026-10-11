@@ -4,16 +4,17 @@ from .contracts import (
     AdmissionStatus, ConfigurationKind, ConfidenceStatus, DerivationMethod,
     INTEGRATION_SCHEMA_VERSION, IntegrationEvent, IntegrationRecord,
     IntegrationRunResult, MotionTimingRecord, PointProvenance,
-    ProvenanceObservationStatus, SyntheticConfiguration, TimingStatus,
+    ProvenanceObservationStatus, SyntheticConfiguration, TimingStatus, UncertaintyStatus,
 )
 from .experimental_harness import ExperimentalIntegrationHarness, ExperimentalSafetyAssessment
-from .validation import CompatibilityValidator, ProvenanceResolver, ValidationOutcome
+from .validation import CompatibilityValidator, MergeResult, ProvenanceMerger, ProvenanceResolver, ValidationOutcome
 
 __all__ = (
     "AdmissionStatus", "ConfigurationKind", "ConfidenceStatus", "DerivationMethod",
     "INTEGRATION_SCHEMA_VERSION", "IntegrationEvent", "IntegrationRecord",
     "IntegrationRunResult", "MotionTimingRecord", "PointProvenance",
     "ProvenanceObservationStatus", "SyntheticConfiguration", "TimingStatus",
-    "CompatibilityValidator", "ProvenanceResolver", "ValidationOutcome",
+    "UncertaintyStatus",
+    "CompatibilityValidator", "MergeResult", "ProvenanceMerger", "ProvenanceResolver", "ValidationOutcome",
     "ExperimentalIntegrationHarness", "ExperimentalSafetyAssessment",
 )

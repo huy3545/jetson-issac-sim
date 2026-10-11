@@ -2,7 +2,8 @@
 from dataclasses import dataclass
 import math
 
-from .contracts import DerivationMethod, PointProvenance, ProvenanceObservationStatus
+from .contracts import (ConfidenceStatus, DerivationMethod, PointProvenance,
+                        ProvenanceObservationStatus, UncertaintyStatus)
 
 @dataclass(frozen=True)
 class ValidationOutcome:
@@ -11,10 +12,13 @@ class ValidationOutcome:
 
 class ProvenanceResolver:
     """Recursively resolves input point IDs; it never treats absent parents as observed."""
-    def __init__(self, points):
+    def __init__(self, points, *, timestamp_tolerance_s=None):
         if not isinstance(points, dict) or not all(isinstance(key, str) and isinstance(value, PointProvenance) for key,value in points.items()):
             raise ValueError("points must map point IDs to PointProvenance")
+        if any(key != value.point_id for key, value in points.items()):
+            raise ValueError("point provenance dictionary key must equal point_id")
         self.points = dict(points)
+        self.timestamp_tolerance_s = timestamp_tolerance_s
 
     def validate(self, point_id):
         reasons = self._visit(point_id, (), None)
@@ -32,10 +36,39 @@ class ProvenanceResolver:
             source = self.points.get(source_id)
             if source is None:
                 reasons.append("SOURCE_PROVENANCE_UNRESOLVED");continue
+            compatibility=CompatibilityValidator().compare(point,source,require_segment=True,timestamp_tolerance_s=self.timestamp_tolerance_s)
+            reasons.extend(compatibility.reason_codes)
             if source.observation_status is ProvenanceObservationStatus.PREDICTED:reasons.append("SOURCE_PREDICTED")
             if source.observation_status is ProvenanceObservationStatus.UNKNOWN:reasons.append("SOURCE_OBSERVATION_UNKNOWN")
             reasons.extend(self._visit(source_id, stack+(point_id,), point.source_run_id))
         return reasons
+
+@dataclass(frozen=True)
+class MergeResult:
+    point: PointProvenance | None
+    reason_codes: tuple[str, ...] = ()
+
+class ProvenanceMerger:
+    """Builds a derived provenance record without changing source trust evidence."""
+    def merge(self, point_id, sources, *, derivation_method, source_run_id, source_frame_id,
+              segment_id, timestamp, clock_domain, coordinate_frame, units,
+              calibration_id, transform_id, config_version, timestamp_tolerance_s=None):
+        if not isinstance(sources, tuple) or not sources or not all(isinstance(item,PointProvenance) for item in sources):
+            raise ValueError("sources must be a non-empty tuple of PointProvenance")
+        if derivation_method not in (DerivationMethod.INTERPOLATION, DerivationMethod.RESAMPLING,
+                                     DerivationMethod.SMOOTHING, DerivationMethod.MIDPOINT,
+                                     DerivationMethod.COORDINATE_TRANSFORM):
+            raise ValueError("merge requires a derived derivation_method")
+        probe = PointProvenance(point_id,tuple(item.point_id for item in sources),source_run_id,source_frame_id,segment_id,
+            ProvenanceObservationStatus.UNKNOWN,ConfidenceStatus.UNKNOWN,None,UncertaintyStatus.UNKNOWN,
+            timestamp,clock_domain,coordinate_frame,units,calibration_id,transform_id,config_version,derivation_method)
+        validator=CompatibilityValidator();reasons=[]
+        for source in sources:
+            reasons.extend(validator.compare(probe,source,require_segment=True,timestamp_tolerance_s=timestamp_tolerance_s).reason_codes)
+            if source.observation_status is ProvenanceObservationStatus.PREDICTED:reasons.append("SOURCE_PREDICTED")
+            if source.observation_status is ProvenanceObservationStatus.UNKNOWN:reasons.append("SOURCE_OBSERVATION_UNKNOWN")
+        reasons=tuple(dict.fromkeys(reasons))
+        return MergeResult(None,reasons) if reasons else MergeResult(probe)
 
 class CompatibilityValidator:
     """Compares boundary metadata without assuming a transform or sync tolerance."""
