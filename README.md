@@ -259,6 +259,8 @@ Stage 7D-2A treats JSON as untrusted transport data. `IsaacPreviewEvidenceAdapte
 
 Stage 7D-2B closes the validation-result bypass: `render_preview(artifact, vision, dry_run, stage)` calls the evidence validator itself and never accepts a caller-made validation result. Validation compares transport boundaries with both the original Vision boundaries and the canonical fixture, recomputes the public solver centerline and diagnostics, verifies every critical artifact field, and requires the six-stage trace to show only the qualified geometry plus strict Gate-B blocking. JSON booleans and labels remain declarations, never authorization.
 
+Stage 7D-2C provides `python -m simulation.run_isaac_preview --fixture square-miter-90 --output artifacts/preview/stage7d2c_preview.usda`. The entrypoint creates only a disposable in-memory USD stage, validates the same canonical Vision/trace/artifact evidence, then writes `/World/JetsonPreview` if `pxr` is available. The scene contains linear boundary and verified-centerline curves; it has no controller, physics cutting or actuator command. In this development environment `pxr` is unavailable, so the command exits with `ISAAC_RUNTIME_NOT_VERIFIED`; an offline test is not an Isaac runtime PASS.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
 .venv/bin/python -m unittest discover -s tests -q

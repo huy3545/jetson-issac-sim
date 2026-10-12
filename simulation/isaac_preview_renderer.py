@@ -11,9 +11,9 @@ def display_xyz(points_xy, transform):
     return tuple((x,y,float(z)) for x,y in points_xy)
 
 
-def render_preview(artifact, vision, dry_run, stage, *, validator=None):
+def render_preview(artifact, vision, dry_run, stage):
     """Render only when a caller supplies a USD stage; no Isaac imports at module load."""
-    validation=(validator or IsaacPreviewEvidenceAdapter()).validate(artifact,vision,dry_run)
+    validation=IsaacPreviewEvidenceAdapter().validate(artifact,vision,dry_run)
     if not validation.valid:
         raise ValueError("preview is not authorized for centerline rendering")
     artifact=validation.artifact

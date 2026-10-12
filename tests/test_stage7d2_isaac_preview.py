@@ -2,12 +2,15 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 import json
+import inspect
 import numpy as np
 
 from integration.isaac_preview_adapter import IsaacPreviewEvidenceAdapter
 from integration.isaac_preview_contracts import IsaacPreviewArtifact, PreviewValidationResult
 from integration.six_module_dry_run import SixModuleDryRunHarness
 from simulation.isaac_preview_renderer import display_xyz
+from simulation.isaac_preview_renderer import render_preview
+from simulation.run_isaac_preview import main as runtime_main
 from vision.contracts import (LineVisionResult, ObservationStatus, OrientationSource,
                               PointDerivationMethod, TrackingState, VisionPointProvenance,
                               VisionResult)
@@ -79,6 +82,10 @@ class IsaacPreviewTests(unittest.TestCase):
         vision=self._vision(units="pixels"); trace=SixModuleDryRunHarness().run(vision,run_id="p",correlation_id="p")
         with self.assertRaises(ValueError): IsaacPreviewEvidenceAdapter().build(vision,trace)
         self.assertNotIn("MachineController",Path("simulation/isaac_preview_renderer.py").read_text())
+
+    def test_renderer_has_no_validator_bypass_and_runtime_reports_missing_usd(self):
+        self.assertNotIn("validator",inspect.signature(render_preview).parameters)
+        self.assertEqual(runtime_main(["--fixture","square-miter-90"]),2)
 
 
 if __name__ == "__main__": unittest.main()
