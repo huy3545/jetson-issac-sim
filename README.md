@@ -263,6 +263,8 @@ Stage 7D-2C provides `python -m simulation.run_isaac_preview --fixture square-mi
 
 Stage 7D-2C.1 uses `UsdGeom.SetStageMetersPerUnit` and `UsdGeom.GetStageMetersPerUnit` for portable OpenUSD metadata. `simulation.isaac_scene_validator` reads authored/reopened stages without mutation and checks Z-up, metres-per-unit, preview Xform, linear `BasisCurves`, point/vertex counts, finite coordinates, widths, colors and solver-coordinate tolerance. The runtime entrypoint exports to a temporary path, reopens and validates it before publishing the requested USD output. USD Runtime and Isaac Sim Runtime remain **NOT VERIFIED** until `pxr` and an actual Isaac Sim runtime execute these paths.
 
+Stage 7D-2C.2 hardens scene validation fail-closed: expected geometry and tolerance are validated before USD access; point counts are compared before coordinates; XYZ uses the declared display Z; widths/colors require valid constant interpolation, finite positive/in-range values. The validator is read-only and returns `execution_authorized=False`. Run offline checks with `python -m unittest tests/test_stage7d2c_scene_validator.py -v`; these tests do not replace USD or Isaac runtime qualification.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
 .venv/bin/python -m unittest discover -s tests -q
