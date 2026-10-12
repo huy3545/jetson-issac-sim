@@ -5,7 +5,6 @@ import json, math
 from numbers import Real
 
 PREVIEW_SCHEMA_VERSION="1.0"; MAX_PREVIEW_POINTS=4096
-_VALIDATION_TOKEN=object()
 
 def _points(value,name):
     if not isinstance(value,tuple) or not value or len(value)>MAX_PREVIEW_POINTS: raise ValueError(f"invalid {name} point count")
@@ -49,10 +48,6 @@ class IsaacPreviewArtifact:
 
 @dataclass(frozen=True)
 class PreviewValidationResult:
-    artifact:IsaacPreviewArtifact; valid:bool; reason_codes:tuple; _token:object=None
+    artifact:IsaacPreviewArtifact; valid:bool; reason_codes:tuple
     def __post_init__(self):
         object.__setattr__(self,"reason_codes",tuple(self.reason_codes))
-    @property
-    def renderer_authorized(self): return self.valid and self._token is _VALIDATION_TOKEN and not self.artifact.execution_authorized
-
-def validated_preview(artifact,reasons=()): return PreviewValidationResult(artifact,not reasons,tuple(reasons),_VALIDATION_TOKEN)

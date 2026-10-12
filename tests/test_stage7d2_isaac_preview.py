@@ -47,12 +47,12 @@ class IsaacPreviewTests(unittest.TestCase):
         raw["centerline_xy"]=[[9.,9.],[10.,10.]]; raw["preview_authorized"]=True
         forged=IsaacPreviewArtifact.from_json(json.dumps(raw))
         result=IsaacPreviewEvidenceAdapter().validate(forged,self._vision(),trace)
-        self.assertFalse(result.valid); self.assertFalse(result.renderer_authorized)
+        self.assertFalse(result.valid)
         self.assertIn("CENTERLINE_SOLVER_MISMATCH",result.reason_codes)
 
     def test_validation_accepts_only_canonical_fixture_and_trace(self):
         artifact,trace=self._build(); checked=IsaacPreviewEvidenceAdapter().validate(artifact,self._vision(),trace)
-        self.assertTrue(checked.valid); self.assertTrue(checked.renderer_authorized)
+        self.assertTrue(checked.valid)
         raw=artifact.to_dict(); raw["left_boundary_xy"][0][0]=.01
         altered=IsaacPreviewArtifact.from_json(json.dumps(raw)); rejected=IsaacPreviewEvidenceAdapter().validate(altered,self._vision(),trace)
         self.assertFalse(rejected.valid); self.assertIn("CANONICAL_FIXTURE_MISMATCH",rejected.reason_codes)

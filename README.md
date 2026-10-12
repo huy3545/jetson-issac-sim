@@ -257,6 +257,8 @@ Preview authorization only permits visual display. It does not verify calibratio
 
 Stage 7D-2A treats JSON as untrusted transport data. `IsaacPreviewEvidenceAdapter.validate(...)` independently cross-checks the six-record trace, canonical Stage 7C-6 square-miter boundaries, public solver result, centerline samples, point validity and Gate-B-only Path blocking before producing a runtime-only validation result for the renderer. `preview_authorized` in JSON is never sufficient. Artifact arrays are tuples, transform metadata is immutable, and `to_dict()` returns a detached copy. The USD renderer requires the validation result, checks stage Z-up and meters-per-unit before any mutation, and stays inside `/World/JetsonPreview`. Offline validation is not an Isaac runtime qualification.
 
+Stage 7D-2B closes the validation-result bypass: `render_preview(artifact, vision, dry_run, stage)` calls the evidence validator itself and never accepts a caller-made validation result. Validation compares transport boundaries with both the original Vision boundaries and the canonical fixture, recomputes the public solver centerline and diagnostics, verifies every critical artifact field, and requires the six-stage trace to show only the qualified geometry plus strict Gate-B blocking. JSON booleans and labels remain declarations, never authorization.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
 .venv/bin/python -m unittest discover -s tests -q

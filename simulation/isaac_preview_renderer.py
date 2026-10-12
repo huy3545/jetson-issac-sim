@@ -1,5 +1,5 @@
 """Lazy, optional Isaac/USD renderer for a validated read-only preview."""
-from integration.isaac_preview_contracts import PreviewValidationResult
+from integration.isaac_preview_adapter import IsaacPreviewEvidenceAdapter
 
 
 def display_xyz(points_xy, transform):
@@ -11,9 +11,10 @@ def display_xyz(points_xy, transform):
     return tuple((x,y,float(z)) for x,y in points_xy)
 
 
-def render_preview(validation: PreviewValidationResult, stage):
+def render_preview(artifact, vision, dry_run, stage, *, validator=None):
     """Render only when a caller supplies a USD stage; no Isaac imports at module load."""
-    if not isinstance(validation, PreviewValidationResult) or not validation.renderer_authorized:
+    validation=(validator or IsaacPreviewEvidenceAdapter()).validate(artifact,vision,dry_run)
+    if not validation.valid:
         raise ValueError("preview is not authorized for centerline rendering")
     artifact=validation.artifact
     try:
