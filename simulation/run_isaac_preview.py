@@ -2,6 +2,8 @@
 import argparse
 from pathlib import Path
 import sys
+import tempfile
+import json
 import numpy as np
 from integration.isaac_preview_adapter import CANONICAL_LEFT, CANONICAL_RIGHT, IsaacPreviewEvidenceAdapter
 from integration.six_module_dry_run import SixModuleDryRunHarness
@@ -36,13 +38,18 @@ def main(argv=None):
     scene=validate_preview_scene(stage,artifact)
     if scene.status!="PASS" or not all(stage.GetPrimAtPath(path).IsValid() for path in expected):
         print("ISAAC_PREVIEW_FAILED: required preview prim missing"); return 1
-    args.output.parent.mkdir(parents=True,exist_ok=True); temporary=args.output.with_suffix(args.output.suffix+".tmp")
-    if not stage.Export(str(temporary)):
-        print("ISAAC_PREVIEW_FAILED: export failed"); return 1
-    reopened=Usd.Stage.Open(str(temporary)); reopened_scene=validate_preview_scene(reopened,artifact)
-    if reopened_scene.status!="PASS": print("ISAAC_PREVIEW_FAILED: reopen validation failed"); return 1
-    temporary.replace(args.output)
-    if args.report: args.report.write_text('{"status":"PASS","execution_authorized":false}\n')
+    args.output.parent.mkdir(parents=True,exist_ok=True)
+    handle=tempfile.NamedTemporaryFile(prefix=args.output.stem+".",suffix=args.output.suffix or ".usda",dir=args.output.parent,delete=False); temporary=Path(handle.name); handle.close()
+    try:
+        if not stage.Export(str(temporary)): print("ISAAC_PREVIEW_FAILED: export failed"); return 1
+        reopened=Usd.Stage.Open(str(temporary))
+        if reopened is None or validate_preview_scene(reopened,artifact).status!="PASS": print("ISAAC_PREVIEW_FAILED: reopen validation failed"); return 1
+        temporary.replace(args.output)
+        if args.report:
+            args.report.parent.mkdir(parents=True,exist_ok=True)
+            args.report.write_text(json.dumps({"status":"PASS","preview_id":artifact.preview_id,"run_id":artifact.run_id,"correlation_id":artifact.correlation_id,"scene_validation":"PASS","usd_round_trip":"PASS","runtime_type":"OpenUSD","gate_b":"BLOCKED","execution_authorized":False})+"\n")
+    finally:
+        if temporary.exists(): temporary.unlink()
     print(f"ISAAC_PREVIEW_SUCCESS: {args.output}")
     return 0
 

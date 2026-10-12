@@ -11,6 +11,8 @@ def validate_preview_scene(stage, artifact, *, tolerance=2e-6):
     reasons=[]; counts=[]; errors={}
     if isinstance(tolerance,bool) or not isinstance(tolerance,(int,float)) or not math.isfinite(tolerance) or tolerance<0:
         return SceneValidationResult("FAIL",("INVALID_TOLERANCE",),paths,(),{}, {},False)
+    if stage is None:
+        return SceneValidationResult("FAIL",("USD_STAGE_INVALID",),paths,(),{}, {},False)
     try:
         expected_sets=(("LeftBoundary",artifact.left_boundary_xy),("RightBoundary",artifact.right_boundary_xy),("VerifiedCenterline",artifact.centerline_xy))
         for _, expected in expected_sets:

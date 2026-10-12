@@ -265,6 +265,8 @@ Stage 7D-2C.1 uses `UsdGeom.SetStageMetersPerUnit` and `UsdGeom.GetStageMetersPe
 
 Stage 7D-2C.2 hardens scene validation fail-closed: expected geometry and tolerance are validated before USD access; point counts are compared before coordinates; XYZ uses the declared display Z; widths/colors require valid constant interpolation, finite positive/in-range values. The validator is read-only and returns `execution_authorized=False`. Run offline checks with `python -m unittest tests/test_stage7d2c_scene_validator.py -v`; these tests do not replace USD or Isaac runtime qualification.
 
+Stage 7D-2C.3 explicitly authors constant width/display-color interpolation, returns `USD_STAGE_INVALID` for a missing stage, and uses a same-directory temporary `.usda` export followed by reopen validation before atomic publication. See [`docs/ISAAC_SIM_RUNTIME_HANDOFF.md`](docs/ISAAC_SIM_RUNTIME_HANDOFF.md) for the real Isaac Sim handoff. Offline evidence is verified; USD and Isaac Sim runtime gates remain NOT VERIFIED until their actual runtimes run the command.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
 .venv/bin/python -m unittest discover -s tests -q

@@ -30,6 +30,6 @@ def render_preview(artifact, vision, dry_run, stage):
         curve=UsdGeom.BasisCurves.Define(stage, f"/World/JetsonPreview/{name}")
         xyz=display_xyz(points,artifact.display_transform)
         curve.CreateTypeAttr(UsdGeom.Tokens.linear); curve.CreatePointsAttr([Gf.Vec3f(*point) for point in xyz]); curve.CreateCurveVertexCountsAttr([len(xyz)])
-        curve.CreateWidthsAttr([0.002])
-        curve.CreateDisplayColorAttr([color])
+        curve.CreateWidthsAttr([0.002]); curve.SetWidthsInterpolation(UsdGeom.Tokens.constant)
+        curve.CreateDisplayColorAttr([color]); curve.GetDisplayColorPrimvar().SetInterpolation(UsdGeom.Tokens.constant)
     return root.GetPath().pathString

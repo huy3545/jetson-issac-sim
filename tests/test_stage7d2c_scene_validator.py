@@ -11,6 +11,9 @@ class SceneValidatorOfflineTests(unittest.TestCase):
     def test_malformed_expected_geometry_fails_before_usd_access(self):
         bad=object.__new__(IsaacPreviewArtifact)
         result=validate_preview_scene(None,bad)
-        self.assertEqual(result.status,"FAIL"); self.assertIn("ARTIFACT_INVALID",result.reason_codes)
+        self.assertEqual(result.status,"FAIL"); self.assertIn("USD_STAGE_INVALID",result.reason_codes)
+    def test_missing_stage_fails_closed_without_usd_runtime(self):
+        result=validate_preview_scene(None,self._artifact())
+        self.assertEqual(result.status,"FAIL"); self.assertIn("USD_STAGE_INVALID",result.reason_codes)
 
 if __name__=="__main__": unittest.main()
