@@ -23,7 +23,7 @@ def render_preview(artifact, vision, dry_run, stage):
         raise RuntimeError("ISAAC_RUNTIME_NOT_VERIFIED") from exc
     if stage is None or UsdGeom.GetStageUpAxis(stage) != UsdGeom.Tokens.z:
         raise ValueError("USD up-axis mismatch")
-    if abs(float(stage.GetMetersPerUnit())-artifact.display_transform["scale_m_per_stage_unit"])>1e-12:
+    if abs(float(UsdGeom.GetStageMetersPerUnit(stage))-artifact.display_transform["scale_m_per_stage_unit"])>1e-12:
         raise ValueError("USD meters-per-unit mismatch")
     root=UsdGeom.Xform.Define(stage, "/World/JetsonPreview")
     for name, points, color in (("LeftBoundary",artifact.left_boundary_xy,(0.,1.,0.)),("RightBoundary",artifact.right_boundary_xy,(1.,0.,0.)),("VerifiedCenterline",artifact.centerline_xy,(1.,1.,0.))):

@@ -261,6 +261,8 @@ Stage 7D-2B closes the validation-result bypass: `render_preview(artifact, visio
 
 Stage 7D-2C provides `python -m simulation.run_isaac_preview --fixture square-miter-90 --output artifacts/preview/stage7d2c_preview.usda`. The entrypoint creates only a disposable in-memory USD stage, validates the same canonical Vision/trace/artifact evidence, then writes `/World/JetsonPreview` if `pxr` is available. The scene contains linear boundary and verified-centerline curves; it has no controller, physics cutting or actuator command. In this development environment `pxr` is unavailable, so the command exits with `ISAAC_RUNTIME_NOT_VERIFIED`; an offline test is not an Isaac runtime PASS.
 
+Stage 7D-2C.1 uses `UsdGeom.SetStageMetersPerUnit` and `UsdGeom.GetStageMetersPerUnit` for portable OpenUSD metadata. `simulation.isaac_scene_validator` reads authored/reopened stages without mutation and checks Z-up, metres-per-unit, preview Xform, linear `BasisCurves`, point/vertex counts, finite coordinates, widths, colors and solver-coordinate tolerance. The runtime entrypoint exports to a temporary path, reopens and validates it before publishing the requested USD output. USD Runtime and Isaac Sim Runtime remain **NOT VERIFIED** until `pxr` and an actual Isaac Sim runtime execute these paths.
+
 ```bash
 .venv/bin/python -m unittest tests/test_stage7d2_isaac_preview.py -v
 .venv/bin/python -m unittest discover -s tests -q
