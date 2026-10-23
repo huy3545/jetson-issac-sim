@@ -70,12 +70,16 @@ class MotionPlan:
 
 @dataclass(frozen=True)
 class SyntheticMachineLimits:
-    config_version:str; workspace_min:tuple[float,float,float]; workspace_max:tuple[float,float,float]; max_step_m:float; max_speed_m_s:float; units:str="m"; real_accuracy_claim:str="NONE"
+    config_version:str; workspace_min:tuple[float,float,float]; workspace_max:tuple[float,float,float]; max_step_m:float; max_speed_m_s:float; units:str="m"; real_accuracy_claim:str="NONE"; max_path_motion_deviation_m:float|None=None; max_c_step_rad:float|None=None
     def __post_init__(self):
         if not self.config_version or self.units!="m" or self.real_accuracy_claim!="NONE":raise ValueError("invalid synthetic limits identity")
         values=(*self.workspace_min,*self.workspace_max,self.max_step_m,self.max_speed_m_s)
         if len(self.workspace_min)!=3 or len(self.workspace_max)!=3 or not all(isinstance(x,(int,float)) and not isinstance(x,bool) and math.isfinite(x) for x in values):raise ValueError("invalid machine limits")
         if any(lo>=hi for lo,hi in zip(self.workspace_min,self.workspace_max)) or self.max_step_m<=0 or self.max_speed_m_s<=0:raise ValueError("invalid machine limits")
+        for value in (self.max_path_motion_deviation_m,self.max_c_step_rad):
+            if value is not None and (isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or value<0):raise ValueError("invalid optional machine limit")
+    @property
+    def limits_hash(self):return _hash((self.config_version,self.workspace_min,self.workspace_max,self.max_step_m,self.max_speed_m_s,self.units,self.real_accuracy_claim,self.max_path_motion_deviation_m,self.max_c_step_rad))
 
 @dataclass(frozen=True)
 class SyntheticMachineState:
@@ -89,7 +93,7 @@ class SyntheticMachineState:
 
 @dataclass(frozen=True)
 class SafetyDecision:
-    run_id:str;correlation_id:str;path_id:str;path_hash:str;motion_plan_id:str;motion_plan_hash:str;status:SafetyStatus;reason_codes:tuple[str,...];checked_boundaries:tuple[str,...];safety_config_version:str;timestamp:float;clock_domain:str;schema_version:str=INTEGRATION_SCHEMA_VERSION;execution_authorized:bool=False
+    run_id:str;correlation_id:str;path_id:str;path_hash:str;motion_plan_id:str;motion_plan_hash:str;status:SafetyStatus;reason_codes:tuple[str,...];checked_boundaries:tuple[str,...];safety_config_version:str;timestamp:float;clock_domain:str;schema_version:str=INTEGRATION_SCHEMA_VERSION;execution_authorized:bool=False;limits_hash:str="LIMITS_UNAVAILABLE"
     def __post_init__(self):
         _enum(self.status,SafetyStatus,"safety status")
         if self.schema_version!=INTEGRATION_SCHEMA_VERSION or self.execution_authorized:raise ValueError("invalid safety decision")
@@ -136,14 +140,23 @@ class IndependentSafetyValidator:
                 if machine_state.configuration_id!=limits.config_version:reasons.append("MACHINE_STATE_CONFIG_MISMATCH")
                 if machine_state.evidence_status is not MachineStateEvidenceStatus.KNOWN:reasons.append("MACHINE_STATE_EVIDENCE_UNKNOWN")
             xyz=motion.target_coordinates
+            if limits.max_path_motion_deviation_m is None:reasons.append("PATH_MOTION_TOLERANCE_UNSPECIFIED")
+            elif np.linalg.norm(motion.target_coordinates-path.coordinates,axis=1).max()>limits.max_path_motion_deviation_m:reasons.append("PATH_MOTION_DEVIATION_EXCEEDED")
+            if ((path.coordinates<limits.workspace_min)|(path.coordinates>limits.workspace_max)).any():reasons.append("PATH_WORKSPACE_VIOLATION")
             if ((xyz<limits.workspace_min)|(xyz>limits.workspace_max)).any():reasons.append("WORKSPACE_VIOLATION")
             if len(xyz)>1 and (np.linalg.norm(np.diff(xyz,axis=0),axis=1)>limits.max_step_m).any():reasons.append("TARGET_STEP_EXCEEDED")
             if any(item.speed_m_s is not None and item.speed_m_s>limits.max_speed_m_s for item in motion.timing_records):reasons.append("SPEED_LIMIT_EXCEEDED")
-            reasons=tuple(dict.fromkeys(reasons));status=SafetyStatus.ACCEPTED if not reasons else (SafetyStatus.BLOCKED if any(code in reasons for code in ("MACHINE_STATE_MISSING","CALIBRATION_TRANSFORM_MISSING","TIMING_UNSPECIFIED","PATH_GAP","UNCERTAINTY_UNKNOWN")) else SafetyStatus.REJECTED)
+            if limits.max_c_step_rad is None:reasons.append("C_STEP_LIMIT_UNSPECIFIED")
+            else:
+                c=[item.c_rad for item in motion.timing_records]
+                if any(value is None for value in c):reasons.append("C_VALUE_MISSING")
+                elif len(c)>1 and any(abs(b-a)>limits.max_c_step_rad for a,b in zip(c,c[1:])):reasons.append("C_STEP_LIMIT_EXCEEDED")
+            reasons=tuple(dict.fromkeys(reasons));blocked=("MACHINE_STATE_MISSING","CALIBRATION_TRANSFORM_MISSING","TIMING_UNSPECIFIED","PATH_GAP","UNCERTAINTY_UNKNOWN","PATH_MOTION_TOLERANCE_UNSPECIFIED","C_STEP_LIMIT_UNSPECIFIED","C_VALUE_MISSING")
+            status=SafetyStatus.ACCEPTED if not reasons else (SafetyStatus.BLOCKED if any(code in reasons for code in blocked) else SafetyStatus.REJECTED)
         except Exception as exc:
             reasons=("SAFETY_VALIDATOR_ERROR",type(exc).__name__);status=SafetyStatus.ERROR
             path=path if isinstance(path,PathPlan) else None;motion=motion if isinstance(motion,MotionPlan) else None
-        decision=SafetyDecision(path.run_id if path else "unknown",path.correlation_id if path else "unknown",path.path_id if path else "unknown",path.content_hash if path else "unknown",motion.motion_plan_id if motion else "unknown",motion.content_hash if motion else "unknown",status,reasons,checked,limits.config_version if isinstance(limits,SyntheticMachineLimits) else "unknown",path.timestamp if path else 0.,path.clock_domain if path else "unknown")
+        decision=SafetyDecision(path.run_id if path else "unknown",path.correlation_id if path else "unknown",path.path_id if path else "unknown",path.content_hash if path else "unknown",motion.motion_plan_id if motion else "unknown",motion.content_hash if motion else "unknown",status,reasons,checked,limits.config_version if isinstance(limits,SyntheticMachineLimits) else "unknown",path.timestamp if path else 0.,path.clock_domain if path else "unknown",limits_hash=limits.limits_hash if isinstance(limits,SyntheticMachineLimits) else "LIMITS_UNAVAILABLE")
         event=SafetyAuditEvent(decision.run_id,decision.correlation_id,"independent_safety",decision.path_hash,decision.motion_plan_hash,decision.status,decision.reason_codes,decision.safety_config_version,decision.timestamp,decision.clock_domain)
         audit_complete=True
         if audit_sink is not None:
@@ -157,6 +170,6 @@ def apply_boundary_veto(boundary_id,input_identity,upstream_status,safety_decisi
     if upstream_status is not SafetyStatus.ACCEPTED:return BoundaryVeto(boundary_id,input_identity,SafetyStatus.BLOCKED,("UPSTREAM_NOT_ACCEPTED",))
     if protected and safety_decision is None:return BoundaryVeto(boundary_id,input_identity,SafetyStatus.BLOCKED,("SAFETY_DECISION_MISSING",))
     if protected and (not isinstance(path,PathPlan) or not isinstance(motion,MotionPlan) or not isinstance(limits,SyntheticMachineLimits)):return BoundaryVeto(boundary_id,input_identity,SafetyStatus.BLOCKED,("BOUNDARY_INPUT_EVIDENCE_MISSING",))
-    if protected and (safety_decision.run_id,safety_decision.correlation_id,safety_decision.path_id,safety_decision.path_hash,safety_decision.motion_plan_id,safety_decision.motion_plan_hash,safety_decision.safety_config_version)!=(path.run_id,path.correlation_id,path.path_id,path.content_hash,motion.motion_plan_id,motion.content_hash,limits.config_version):return BoundaryVeto(boundary_id,input_identity,SafetyStatus.BLOCKED,("SAFETY_DECISION_IDENTITY_MISMATCH",))
+    if protected and (safety_decision.run_id,safety_decision.correlation_id,safety_decision.path_id,safety_decision.path_hash,safety_decision.motion_plan_id,safety_decision.motion_plan_hash,safety_decision.safety_config_version,safety_decision.limits_hash)!=(path.run_id,path.correlation_id,path.path_id,path.content_hash,motion.motion_plan_id,motion.content_hash,limits.config_version,limits.limits_hash):return BoundaryVeto(boundary_id,input_identity,SafetyStatus.BLOCKED,("SAFETY_DECISION_IDENTITY_MISMATCH",))
     if safety_decision is not None and safety_decision.status is not SafetyStatus.ACCEPTED:return BoundaryVeto(boundary_id,input_identity,SafetyStatus.BLOCKED,("SAFETY_VETO",),safety_decision.motion_plan_hash)
     return BoundaryVeto(boundary_id,input_identity,SafetyStatus.ACCEPTED,())

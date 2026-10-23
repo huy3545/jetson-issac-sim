@@ -77,16 +77,17 @@ class IntegrationCoordinator:
         if not complete:return hold(("EVIDENCE_INCOMPLETE",),"audit_failure")
         return self._result(run,corr,decision,boundaries,trans,events,complete)
     def reset(self,*,audit_sink=None,run_id="reset",correlation_id="reset",timestamp=0.,clock_domain="synthetic",config_version="synthetic"):
-        previous=self.state;candidate=TransitionResult(previous,IntegrationState.IDLE,SafetyStatus.ACCEPTED,("RESET",))
-        audit=CoordinatorAuditEvent("reset",run_id,correlation_id,"reset",None,previous,IntegrationState.IDLE,"reset",None,None,None,SafetyStatus.ACCEPTED,("RESET",),timestamp,clock_domain,config_version,True)
+        previous=self.state
+        candidate=TransitionResult(previous,IntegrationState.IDLE,SafetyStatus.ACCEPTED,("RESET",)) if IntegrationState.IDLE in _TRANSITIONS[previous] else TransitionResult(previous,previous,SafetyStatus.REJECTED,("ILLEGAL_FSM_TRANSITION",))
+        audit=CoordinatorAuditEvent("reset",run_id,correlation_id,"reset",None,candidate.previous,candidate.next,"reset",None,None,None,candidate.status,candidate.reason_codes,timestamp,clock_domain,config_version,True)
         self.last_reset_audit=audit
         try:
             if audit_sink:audit_sink.emit(audit)
         except Exception:
             self.last_reset_audit=CoordinatorAuditEvent("reset",run_id,correlation_id,"reset",None,previous,previous,"reset",None,None,None,SafetyStatus.BLOCKED,("EVIDENCE_INCOMPLETE",),timestamp,clock_domain,config_version,False)
             return TransitionResult(previous,previous,SafetyStatus.BLOCKED,("EVIDENCE_INCOMPLETE",))
-        if IntegrationState.IDLE not in _TRANSITIONS[previous]:return TransitionResult(previous,previous,SafetyStatus.REJECTED,("ILLEGAL_FSM_TRANSITION",))
-        self.state=IntegrationState.IDLE;return candidate
+        if candidate.status is SafetyStatus.ACCEPTED:self.state=IntegrationState.IDLE
+        return candidate
     def _result(self,run,corr,decision,boundaries,trans,events,complete):
         status=SafetyStatus.ACCEPTED if self.state is IntegrationState.CUT and complete else SafetyStatus.BLOCKED
         return IntegrationCoordinatorResult(run,corr,self.state,status,decision,tuple(boundaries),tuple(trans),tuple(events),complete)

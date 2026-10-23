@@ -8,7 +8,7 @@ def path(**changes):
  pts=(point(0),point(1));d=dict(run_id="run",correlation_id="corr",path_id="path",source_frame_id="frame",timestamp=1.,clock_domain="sim",coordinate_frame="workpiece_m",units="m",calibration_id="cal",transform_id="tf",config_version="cfg",segment_ids=("seg",),point_ids=("p0","p1"),point_provenance=pts,coordinates=np.array([[0.,0.,.5],[.01,0.,.5]]),geometry_status="VALID",qualification_status="VERIFIED",uncertainty_status=UncertaintyStatus.KNOWN,has_gap=False);d.update(changes);return PathPlan(**d)
 def motion(p,**changes):
  timing=tuple(MotionTimingRecord(i,"seg",p.path_id,"workpiece_m","m",1.,.1,.01,0.,AdmissionStatus.ACCEPTED) for i in range(2));d=dict(run_id="run",correlation_id="corr",motion_plan_id="motion",source_path_id=p.path_id,source_path_hash=p.content_hash,segment_ids=("seg",),target_ids=("t0","t1"),target_point_ids=p.point_ids,target_coordinates=p.coordinates,coordinate_frame="workpiece_m",units="m",timestamp=1.,clock_domain="sim",config_version="cfg",timing_records=timing,provenance_references=("path",),motion_status="VALID");d.update(changes);return MotionPlan(**d)
-def limits():return SyntheticMachineLimits("limits",(-1.,-1.,0.),(1.,1.,1.),.1,.1)
+def limits():return SyntheticMachineLimits("limits",(-1.,-1.,0.),(1.,1.,1.),.1,.1,max_path_motion_deviation_m=.1,max_c_step_rad=3.2)
 def state(**changes):
  d=dict(run_id="run",correlation_id="corr",source_frame_id="frame",timestamp=1.,clock_domain="sim",configuration_id="limits",values=(("z",.5),),evidence_status=MachineStateEvidenceStatus.KNOWN);d.update(changes);return SyntheticMachineState(**d)
 class Sink:
