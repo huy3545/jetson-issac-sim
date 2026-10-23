@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Canonical Prim Path and Scene Mapping for Isaac Sim Fabric Feed Cutting Integration",
+  "target_scene": {
+    "default_stage_file": "scenes/fabric_feed_cutting_world.usda",
+    "fallback_candidate_file": "scenes/fabric_feed_compliant_candidate.usda",
+    "stage_units": {
+      "up_axis": "Z",
+      "meters_per_unit": 1.0
+    }
+  },
+  "prim_paths": {
+    "world_root": "/World",
+    "machine_root": "/World/AirTable",
+    "legacy_aliases": [
+      "/World/FeedHead",
+      "/World/CuttingHead",
+      "/World/Vision"
+    ],
+    "preview_namespace": "/World/JetsonPreview",
+    "preview_prims": {
+      "left_boundary": "/World/JetsonPreview/LeftBoundary",
+      "right_boundary": "/World/JetsonPreview/RightBoundary",
+      "verified_centerline": "/World/JetsonPreview/VerifiedCenterline"
+    },
+    "sensors": {
+      "camera_rgbd": "/World/AirTable/Camera_Sensor"
+    },
+    "actuators": {
+      "left_drive_wheel": "/World/AirTable/LeftWheel",
+      "right_drive_wheel": "/World/AirTable/RightWheel",
+      "knife_z_axis": "/World/AirTable/CuttingHead/Knife_Z",
+      "knife_c_axis": "/World/AirTable/CuttingHead/Knife_C"
+    }
+  },
+  "fabric_differential_kinematics": {
+    "wheel_radius_m": 0.05,
+    "wheel_track_width_m": 0.30,
+    "max_feed_speed_m_s": 0.20,
+    "max_angular_velocity_rad_s": 1.5,
+    "knife_cut_depth_z_m": 0.005,
+    "knife_retract_height_z_m": 0.020
+  },
+  "safety_enforcement": {
+    "single_writer_only": true,
+    "require_manifest_validation": true,
+    "default_mode": "JETSON_PREVIEW",
+    "allowed_modes": [
+      "PLAYBACK",
+      "JETSON_PREVIEW",
+      "JETSON_CONTROL",
+      "HOLD",
+      "FAULT"
+    ],
+    "execution_authorized": false
+  }
+}
