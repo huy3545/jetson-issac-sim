@@ -24,13 +24,106 @@
       "verified_centerline": "/World/JetsonPreview/VerifiedCenterline"
     },
     "sensors": {
-      "camera_rgbd": "/World/AirTable/Camera_Sensor"
+      "camera_rgbd": "/World/AirTable/Camera_Sensor",
+      "camera_sensor": {
+        "canonical_path": "/World/AirTable/Camera_Sensor",
+        "verification_status": "UNVERIFIED_CANDIDATE",
+        "depth_evidence_status": "NOT_VERIFIED",
+        "candidate_paths": [
+          {
+            "path": "/World/AirTable/InspectionCamera/Sensor",
+            "scene": "scenes/fabric_feed_cutting_world.usda",
+            "notes": "Candidate inspection camera sensor under AirTable namespace"
+          },
+          {
+            "path": "/World/LooseFabric/InspectionCamera/Sensor",
+            "scene": "scenes/fabric_feed_cutting_world.usda",
+            "notes": "Prototype camera sensor under LooseFabric root"
+          },
+          {
+            "path": "/World/Vision/InspectionCamera/Sensor",
+            "scene": "legacy_vision_rig",
+            "notes": "Legacy separate vision root reference"
+          },
+          {
+            "path": "/World/Machine/Kinematics/YBridge/XCarriage/ZSlide/CHead/LineCamera/Sensor",
+            "scene": "scenes/fixed_head_cutting_world.usda",
+            "notes": "Line camera sensor on fixed-head 4-wheel/gantry cutting head"
+          }
+        ]
+      }
     },
     "actuators": {
       "left_drive_wheel": "/World/AirTable/LeftWheel",
       "right_drive_wheel": "/World/AirTable/RightWheel",
       "knife_z_axis": "/World/AirTable/CuttingHead/Knife_Z",
-      "knife_c_axis": "/World/AirTable/CuttingHead/Knife_C"
+      "knife_c_axis": "/World/AirTable/CuttingHead/Knife_C",
+      "details": {
+        "left_wheel": {
+          "canonical_path": "/World/AirTable/LeftWheel",
+          "verification_status": "UNVERIFIED_CANDIDATE",
+          "candidate_paths": [
+            {
+              "path": "/World/AirTable/FrontWheelLeft/Rotor",
+              "scene": "scenes/fabric_feed_cutting_world.usda",
+              "notes": "AirTable differential left drive rotor"
+            },
+            {
+              "path": "/World/LooseFabric/FrontWheelLeft/Rotor",
+              "scene": "scenes/fabric_feed_cutting_world.usda",
+              "notes": "LooseFabric prototype left drive rotor"
+            }
+          ]
+        },
+        "right_wheel": {
+          "canonical_path": "/World/AirTable/RightWheel",
+          "verification_status": "UNVERIFIED_CANDIDATE",
+          "candidate_paths": [
+            {
+              "path": "/World/AirTable/FrontWheelRight/Rotor",
+              "scene": "scenes/fabric_feed_cutting_world.usda",
+              "notes": "AirTable differential right drive rotor"
+            },
+            {
+              "path": "/World/LooseFabric/FrontWheelRight/Rotor",
+              "scene": "scenes/fabric_feed_cutting_world.usda",
+              "notes": "LooseFabric prototype right drive rotor"
+            }
+          ]
+        },
+        "knife_z": {
+          "canonical_path": "/World/AirTable/CuttingHead/Knife_Z",
+          "verification_status": "UNVERIFIED_CANDIDATE",
+          "candidate_paths": [
+            {
+              "path": "/World/AirTable/ZSlide/Blade",
+              "scene": "scenes/fabric_feed_cutting_world.usda",
+              "notes": "AirTable Z-slide cutter blade"
+            },
+            {
+              "path": "/World/LooseFabric/ZSlide/Blade",
+              "scene": "scenes/fabric_feed_cutting_world.usda",
+              "notes": "LooseFabric prototype Z-slide blade"
+            },
+            {
+              "path": "/World/Machine/Kinematics/YBridge/XCarriage/ZSlide/CHead/Blade",
+              "scene": "scenes/fixed_head_cutting_world.usda",
+              "notes": "Fixed-head gantry CHead blade"
+            }
+          ]
+        },
+        "knife_c": {
+          "canonical_path": "/World/AirTable/CuttingHead/Knife_C",
+          "verification_status": "UNVERIFIED_CANDIDATE",
+          "candidate_paths": [
+            {
+              "path": "/World/Machine/Kinematics/YBridge/XCarriage/ZSlide/CHead/CServo",
+              "scene": "scenes/fixed_head_cutting_world.usda",
+              "notes": "Tangential C-axis servo on CHead"
+            }
+          ]
+        }
+      }
     }
   },
   "fabric_differential_kinematics": {
@@ -39,12 +132,15 @@
     "max_feed_speed_m_s": 0.20,
     "max_angular_velocity_rad_s": 1.5,
     "knife_cut_depth_z_m": 0.005,
-    "knife_retract_height_z_m": 0.020
+    "knife_retract_height_z_m": 0.020,
+    "kinematics_evidence_status": "SYNTHETIC_UNIT_TEST_ONLY_NOT_VERIFIED_FROM_USD",
+    "measurement_provenance": "Assumed theoretical values for mathematical unit testing; pending USD CAD measurement"
   },
   "safety_enforcement": {
     "single_writer_only": true,
     "require_manifest_validation": true,
     "default_mode": "JETSON_PREVIEW",
+    "gate_b_status": "BLOCKED",
     "allowed_modes": [
       "PLAYBACK",
       "JETSON_PREVIEW",

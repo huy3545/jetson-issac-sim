@@ -41,6 +41,54 @@ class IsaacSceneManifest:
     def execution_authorized(self) -> bool:
         return bool(self.safety.get("execution_authorized", False))
 
+    @property
+    def gate_b_status(self) -> str:
+        return str(self.safety.get("gate_b_status", "BLOCKED"))
+
+    @property
+    def kinematics_evidence_status(self) -> str:
+        return str(self.kinematics.get("kinematics_evidence_status", "UNVERIFIED"))
+
+    @property
+    def camera_verification_status(self) -> str:
+        sensor_info = self.prim_paths.get("sensors", {})
+        camera_sensor = sensor_info.get("camera_sensor", {})
+        if isinstance(camera_sensor, dict):
+            return str(camera_sensor.get("verification_status", "UNVERIFIED"))
+        return "UNVERIFIED"
+
+    @property
+    def depth_evidence_status(self) -> str:
+        sensor_info = self.prim_paths.get("sensors", {})
+        camera_sensor = sensor_info.get("camera_sensor", {})
+        if isinstance(camera_sensor, dict):
+            return str(camera_sensor.get("depth_evidence_status", "NOT_VERIFIED"))
+        return "NOT_VERIFIED"
+
+    def get_camera_path(self) -> str:
+        """Return canonical camera Prim path with backward compatibility."""
+        sensors = self.prim_paths.get("sensors", {})
+        if "camera_rgbd" in sensors and isinstance(sensors["camera_rgbd"], str):
+            return sensors["camera_rgbd"]
+        camera_sensor = sensors.get("camera_sensor", {})
+        if isinstance(camera_sensor, dict) and "canonical_path" in camera_sensor:
+            return camera_sensor["canonical_path"]
+        return "/World/AirTable/Camera_Sensor"
+
+    def get_candidate_paths(self, component: str) -> tuple:
+        """Retrieve candidate Prim paths and origin scene evidence for a component."""
+        if component in ("camera", "camera_sensor", "camera_rgbd"):
+            sensor = self.prim_paths.get("sensors", {}).get("camera_sensor", {})
+            return tuple(sensor.get("candidate_paths", ())) if isinstance(sensor, dict) else ()
+
+        actuator_details = self.prim_paths.get("actuators", {}).get("details", {})
+        if isinstance(actuator_details, dict) and component in actuator_details:
+            entry = actuator_details[component]
+            if isinstance(entry, dict):
+                return tuple(entry.get("candidate_paths", ()))
+
+        return ()
+
 
 def load_manifest(manifest_path: Path | str | None = None) -> IsaacSceneManifest:
     """Load and validate the Isaac Sim scene manifest."""
