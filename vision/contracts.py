@@ -123,3 +123,4 @@ class VisionResult:
     fabric_movement_uncertainty: float | None = None
     calibration_status: str = "UNVERIFIED"
     calibration_id: str | None = None
+    runtime_verified: bool = False

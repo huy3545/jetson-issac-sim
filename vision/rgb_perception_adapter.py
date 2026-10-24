@@ -230,17 +230,19 @@ class RGBPerceptionAdapter:
         clock_domain: str = "camera_clock",
         rgb_timestamp: float | None = None,
         depth_timestamp: float | None = None,
-        rgb_depth_registered: bool = True,
+        rgb_depth_registered: bool = False,
         max_sync_delta_s: float = 0.005,
+        allow_synthetic_dry_run: bool = True,
     ) -> tuple[VisionResult, PerceptionQuality]:
         """Phase B: Project pixel boundaries to metric workpiece coordinates.
 
-        Strict V1.2 Data Integrity:
-        - Rejects unregistered frames (UNREGISTERED_RGBD).
+        Strict V1.2.1 Data Integrity:
+        - Rejects unregistered frames without explicit evidence (UNREGISTERED_RGBD).
+        - Rejects missing timestamp evidence (MISSING_TIMESTAMP_EVIDENCE).
         - Rejects desynchronized RGB-Depth timestamps (TIMESTAMP_DESYNC).
         - Rejects invalid or empty clock domains (INVALID_CLOCK_DOMAIN).
         - Never replaces invalid depth with fallback constants (e.g. 0.5m).
-        - Propagates calibration status and id through provenance and VisionResult.
+        - Distinguishes VERIFIED vs SYNTHETIC_TEST_ONLY; rejects unverified calibration when allow_synthetic_dry_run=False.
         """
         # Support ingestion from RGBDFrame directly
         if isinstance(rgb, RGBDFrame):
@@ -248,14 +250,14 @@ class RGBPerceptionAdapter:
             rgb = frame.rgb
             depth = frame.depth
             calibration = frame.calibration
-            timestamp_s = frame.timestamp if frame.timestamp is not None else timestamp_s
+            timestamp_s = frame.timestamp if frame.timestamp is not None else (frame.rgb_timestamp if frame.rgb_timestamp is not None else timestamp_s)
             clock_domain = frame.clock_domain
             frame_id = str(frame.frame_id) if frame.frame_id is not None else frame_id
             rgb_timestamp = frame.rgb_timestamp
             depth_timestamp = frame.depth_timestamp
             rgb_depth_registered = frame.rgb_depth_registered
 
-        # 1. Validation: Registration check
+        # 1. Validation: Registration check (Never assume registered by default)
         if not rgb_depth_registered:
             raise ValueError("UNREGISTERED_RGBD: RGB and Depth frames are not registered")
 
@@ -263,15 +265,19 @@ class RGBPerceptionAdapter:
         if not clock_domain or not isinstance(clock_domain, str) or not clock_domain.strip():
             raise ValueError("INVALID_CLOCK_DOMAIN: Clock domain must be specified and non-empty")
 
-        # 3. Validation: Timestamp synchronization check
-        if rgb_timestamp is not None and depth_timestamp is not None:
-            if not (math.isfinite(rgb_timestamp) and math.isfinite(depth_timestamp)):
-                raise ValueError("INVALID_TIMESTAMP: rgb_timestamp and depth_timestamp must be finite numbers")
-            sync_delta = abs(rgb_timestamp - depth_timestamp)
-            if sync_delta > max_sync_delta_s:
-                raise ValueError(
-                    f"TIMESTAMP_DESYNC: Delta {sync_delta:.6f}s exceeds max_sync_delta_s ({max_sync_delta_s:.6f}s)"
-                )
+        # 3. Validation: Timestamp synchronization & evidence check (Never treat missing timestamp as evidence)
+        if rgb_timestamp is None or depth_timestamp is None:
+            raise ValueError("MISSING_TIMESTAMP_EVIDENCE: Both rgb_timestamp and depth_timestamp must be provided")
+        if not (math.isfinite(rgb_timestamp) and math.isfinite(depth_timestamp)):
+            raise ValueError("INVALID_TIMESTAMP: rgb_timestamp and depth_timestamp must be finite numbers")
+        if rgb_timestamp < 0.0 or depth_timestamp < 0.0:
+            raise ValueError("MISSING_TIMESTAMP_EVIDENCE: Timestamps must be non-negative (>= 0)")
+
+        sync_delta = abs(rgb_timestamp - depth_timestamp)
+        if sync_delta > max_sync_delta_s:
+            raise ValueError(
+                f"TIMESTAMP_DESYNC: Delta {sync_delta:.6f}s exceeds max_sync_delta_s ({max_sync_delta_s:.6f}s)"
+            )
 
         # 4. Validation: Depth array and shape
         if depth is None or depth.shape != rgb.shape[:2]:
@@ -279,11 +285,21 @@ class RGBPerceptionAdapter:
                 f"Depth shape {getattr(depth, 'shape', None)} must match RGB shape {rgb.shape[:2]}"
             )
 
-        # 5. Validation: Calibration object
+        # 5. Validation: Calibration object and status check
         if not isinstance(calibration, CameraCalibration):
             raise ValueError("Invalid CameraCalibration object")
         if min(calibration.fx, calibration.fy) <= 0 or not np.isfinite(calibration.camera_to_world).all():
             raise ValueError("CameraCalibration values must be positive and finite")
+
+        is_verified_cal = (calibration.calibration_status == "VERIFIED")
+        if not is_verified_cal:
+            if not allow_synthetic_dry_run:
+                raise ValueError(
+                    f"SYNTHETIC_CALIBRATION_REJECTED: Calibration status is '{calibration.calibration_status}' but allow_synthetic_dry_run is False"
+                )
+            synthetic_diags = ["SYNTHETIC_CALIBRATION_DRY_RUN"]
+        else:
+            synthetic_diags = []
 
         # Step 1: Extract pixel lines
         pixel_result, quality = self.process_rgb(
@@ -297,7 +313,7 @@ class RGBPerceptionAdapter:
 
         # Step 2: Project each line to metric 3D using pinhole projection without fallback
         def _project_line(name: str, pts_px: np.ndarray) -> tuple[LineVisionResult, list[str]]:
-            line_diagnostics: list[str] = []
+            line_diagnostics: list[str] = list(synthetic_diags)
             sampled_px = resample_arc_length(pts_px, self.config.experimental_depth_resample_points)
             valid_mask, _, valid_ranges = sample_depth_valid(depth, sampled_px)
 
@@ -449,6 +465,7 @@ class RGBPerceptionAdapter:
             overall_state=overall,
             calibration_status=calibration.calibration_status,
             calibration_id=calibration.calibration_id,
+            runtime_verified=is_verified_cal,
         )
         return metric_result, final_quality
 

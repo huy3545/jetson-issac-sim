@@ -110,7 +110,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
 
         # But passing None depth to process_rgbd raises ValueError
         with self.assertRaises(ValueError):
-            self.adapter.process_rgbd(rgb, None, self.calibration)
+            self.adapter.process_rgbd(
+                rgb,
+                None,
+                self.calibration,
+                rgb_timestamp=0.0,
+                depth_timestamp=0.0,
+                rgb_depth_registered=True,
+            )
 
     # -------------------------------------------------------------------------
     # Criterion 6: Depth and RGB shape mismatch
@@ -120,7 +127,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         bad_depth = np.zeros((200, 200), dtype=float)
 
         with self.assertRaises(ValueError) as ctx:
-            self.adapter.process_rgbd(rgb, bad_depth, self.calibration)
+            self.adapter.process_rgbd(
+                rgb,
+                bad_depth,
+                self.calibration,
+                rgb_timestamp=0.0,
+                depth_timestamp=0.0,
+                rgb_depth_registered=True,
+            )
         self.assertIn("must match RGB shape", str(ctx.exception))
 
     # -------------------------------------------------------------------------
@@ -137,9 +151,6 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
     # -------------------------------------------------------------------------
     # Criterion 8: Trajectory exceeding workspace flagged by Safety
     # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
-    # Criterion 8: Trajectory exceeding workspace flagged by Safety
-    # -------------------------------------------------------------------------
     def test_criterion_8_workspace_violation_flagged_by_safety(self):
         rgb_path = TEST_DATA_DIR / "curve_rgb.png"
         depth_path = TEST_DATA_DIR / "curve_depth.npy"
@@ -151,7 +162,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         depth = np.load(str(depth_path))
 
         # Part A: In-bounds trajectory (curve_rgb.png with normal calibration)
-        metric_result, _ = self.adapter.process_rgbd(rgb, depth, self.calibration)
+        metric_result, _ = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            self.calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+        )
         self.assertEqual(metric_result.units, "m")
         self.assertEqual(metric_result.coordinate_frame, "workpiece_m")
 
@@ -185,7 +203,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
             calibration_status="SYNTHETIC_TEST_ONLY",
             calibration_id="oob-synthetic-cal",
         )
-        oob_metric_result, _ = self.adapter.process_rgbd(rgb, depth, oob_calibration)
+        oob_metric_result, _ = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            oob_calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+        )
         run_res_oob = self.harness.run(oob_metric_result, run_id="criterion-8-oob")
         self.assertEqual(run_res_oob.stage_records[3].status, PipelineStatus.BLOCKED)
         oob_violations = [
@@ -206,7 +231,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         depth = np.load(str(depth_path))
 
-        metric_result, _ = self.adapter.process_rgbd(rgb, depth, self.calibration)
+        metric_result, _ = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            self.calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+        )
         run_res = self.harness.run(metric_result, run_id="criterion-9-audit")
 
         # Audit trail must be complete (all 6 records produced and logged)
@@ -234,7 +266,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         corrupted_depth[50:80, :] = np.nan   # NaN depth
         corrupted_depth[260:280, :] = -1.0 # negative depth
 
-        res, quality = self.adapter.process_rgbd(rgb, corrupted_depth, self.calibration)
+        res, quality = self.adapter.process_rgbd(
+            rgb,
+            corrupted_depth,
+            self.calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+        )
 
         # Must reject metric projection for lines suffering unresolved depth gap / low ratio
         self.assertEqual(res.left.observation_status, ObservationStatus.INVALID)
@@ -249,13 +288,13 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         self.assertEqual(len(res.right.points), 0)
 
     # -------------------------------------------------------------------------
-    # Criterion 11: Timestamp desynchronization rejected
+    # Criterion 11: Timestamp desynchronization & missing timestamp evidence rejected
     # -------------------------------------------------------------------------
     def test_timestamp_desync_rejected(self):
         rgb = np.zeros((360, 480, 3), dtype=np.uint8)
         depth = np.full((360, 480), 0.5, dtype=float)
 
-        # Delta = 0.010s > max_sync_delta_s (0.005s) -> Must raise ValueError
+        # 1. Delta = 0.010s > max_sync_delta_s (0.005s) -> Must raise ValueError
         with self.assertRaises(ValueError) as ctx:
             self.adapter.process_rgbd(
                 rgb,
@@ -263,17 +302,42 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
                 self.calibration,
                 rgb_timestamp=100.000,
                 depth_timestamp=100.010,
+                rgb_depth_registered=True,
                 max_sync_delta_s=0.005,
             )
         self.assertIn("TIMESTAMP_DESYNC", str(ctx.exception))
 
-        # Synchronized within tolerance (delta = 0.002s <= 0.005s) -> No desync error
+        # 2. Missing timestamp evidence rejected
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(
+                rgb,
+                depth,
+                self.calibration,
+                rgb_timestamp=None,
+                depth_timestamp=100.0,
+                rgb_depth_registered=True,
+            )
+        self.assertIn("MISSING_TIMESTAMP_EVIDENCE", str(ctx.exception))
+
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(
+                rgb,
+                depth,
+                self.calibration,
+                rgb_timestamp=100.0,
+                depth_timestamp=None,
+                rgb_depth_registered=True,
+            )
+        self.assertIn("MISSING_TIMESTAMP_EVIDENCE", str(ctx.exception))
+
+        # 3. Synchronized within tolerance (delta = 0.002s <= 0.005s) -> No desync error
         res, quality = self.adapter.process_rgbd(
             rgb,
             depth,
             self.calibration,
             rgb_timestamp=100.000,
             depth_timestamp=100.002,
+            rgb_depth_registered=True,
             max_sync_delta_s=0.005,
         )
         self.assertNotIn("TIMESTAMP_DESYNC", str(quality.diagnostics))
@@ -285,21 +349,36 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         rgb = np.zeros((360, 480, 3), dtype=np.uint8)
         depth = np.full((360, 480), 0.5, dtype=float)
 
-        # Direct kwargs call
+        # 1. Direct kwargs call with explicit False
         with self.assertRaises(ValueError) as ctx:
             self.adapter.process_rgbd(
                 rgb,
                 depth,
                 self.calibration,
+                rgb_timestamp=0.0,
+                depth_timestamp=0.0,
                 rgb_depth_registered=False,
             )
         self.assertIn("UNREGISTERED_RGBD", str(ctx.exception))
 
-        # With RGBDFrame object
+        # 2. Default kwargs call (omitting rgb_depth_registered) -> defaults to False
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(
+                rgb,
+                depth,
+                self.calibration,
+                rgb_timestamp=0.0,
+                depth_timestamp=0.0,
+            )
+        self.assertIn("UNREGISTERED_RGBD", str(ctx.exception))
+
+        # 3. With RGBDFrame object
         frame = RGBDFrame(
             rgb=rgb,
             depth=depth,
             calibration=self.calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
             rgb_depth_registered=False,
         )
         with self.assertRaises(ValueError) as ctx:
@@ -319,15 +398,38 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         depth = np.load(str(depth_path))
 
-        # 1. SYNTHETIC_TEST_ONLY
-        res_synthetic, _ = self.adapter.process_rgbd(rgb, depth, self.calibration)
+        # 1. SYNTHETIC_TEST_ONLY with allow_synthetic_dry_run=True (default)
+        res_synthetic, quality_syn = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            self.calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+            allow_synthetic_dry_run=True,
+        )
         self.assertEqual(res_synthetic.calibration_status, "SYNTHETIC_TEST_ONLY")
         self.assertEqual(res_synthetic.calibration_id, "unit-test-synthetic-cal")
+        self.assertFalse(res_synthetic.runtime_verified)
+        self.assertIn("SYNTHETIC_CALIBRATION_DRY_RUN", quality_syn.diagnostics)
         self.assertTrue(
             any("calibration_status:SYNTHETIC_TEST_ONLY" in ref for ref in res_synthetic.left.point_provenance[0].source_references)
         )
 
-        # 2. VERIFIED
+        # 2. SYNTHETIC_TEST_ONLY with allow_synthetic_dry_run=False -> REJECTED
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(
+                rgb,
+                depth,
+                self.calibration,
+                rgb_timestamp=0.0,
+                depth_timestamp=0.0,
+                rgb_depth_registered=True,
+                allow_synthetic_dry_run=False,
+            )
+        self.assertIn("SYNTHETIC_CALIBRATION_REJECTED", str(ctx.exception))
+
+        # 3. VERIFIED
         verified_cal = CameraCalibration(
             fx=450.0,
             fy=450.0,
@@ -337,9 +439,18 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
             calibration_status="VERIFIED",
             calibration_id="isaac-sim-verified-cam-001",
         )
-        res_verified, _ = self.adapter.process_rgbd(rgb, depth, verified_cal)
+        res_verified, _ = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            verified_cal,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+            allow_synthetic_dry_run=False,
+        )
         self.assertEqual(res_verified.calibration_status, "VERIFIED")
         self.assertEqual(res_verified.calibration_id, "isaac-sim-verified-cam-001")
+        self.assertTrue(res_verified.runtime_verified)
         self.assertTrue(
             any("calibration_status:VERIFIED" in ref for ref in res_verified.left.point_provenance[0].source_references)
         )
@@ -357,7 +468,14 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         depth = np.load(str(depth_path))
 
-        res, quality = self.adapter.process_rgbd(rgb, depth, self.calibration)
+        res, quality = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            self.calibration,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+        )
         # Quality score exists and is bounded in (0, 1]
         self.assertGreater(quality.quality_score, 0.5)
         self.assertLessEqual(quality.quality_score, 1.0)
@@ -370,3 +488,4 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

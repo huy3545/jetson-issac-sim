@@ -69,4 +69,13 @@ class TestDataSource:
             cv2.polylines(rgb, [pixels], False, (0, 220, 0), 7)
         depth = np.full((height, width), 0.5, dtype=float)
         camera = CameraCalibration(450, 450, width / 2, height / 2, np.eye(4))
-        return RGBDFrame(rgb, depth, camera)
+        return RGBDFrame(
+            rgb,
+            depth,
+            camera,
+            timestamp=0.0,
+            rgb_timestamp=0.0,
+            depth_timestamp=0.0,
+            rgb_depth_registered=True,
+            clock_domain="synthetic_clock",
+        )
