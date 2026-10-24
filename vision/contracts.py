@@ -121,3 +121,5 @@ class VisionResult:
     camera_to_reference: np.ndarray | None = None
     occlusion_status: str = "UNKNOWN"
     fabric_movement_uncertainty: float | None = None
+    calibration_status: str = "UNVERIFIED"
+    calibration_id: str | None = None

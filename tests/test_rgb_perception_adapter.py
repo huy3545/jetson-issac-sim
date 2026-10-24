@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from config import Config
-from data_source import CameraCalibration
+from data_source import CameraCalibration, RGBDFrame
 from integration.toolhead_closed_loop_harness import (
     PipelineStatus,
     ToolheadClosedLoopHarness,
@@ -23,13 +23,15 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
     def setUp(self):
         self.adapter = RGBPerceptionAdapter(min_blur_var=10.0)
         self.harness = ToolheadClosedLoopHarness()
-        # Default calibration for test data (360x480)
+        # Explicitly synthetic calibration for unit tests
         self.calibration = CameraCalibration(
             fx=450.0,
             fy=450.0,
             cx=240.0,
             cy=180.0,
             camera_to_world=np.eye(4),
+            calibration_status="SYNTHETIC_TEST_ONLY",
+            calibration_id="unit-test-synthetic-cal",
         )
 
     # -------------------------------------------------------------------------
@@ -50,9 +52,11 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         self.assertEqual(result.right.observation_status, ObservationStatus.OBSERVED)
         self.assertGreater(len(result.left.points), 10)
         self.assertGreater(len(result.right.points), 10)
-        self.assertGreater(quality.calculated_confidence, 0.5)
-        # Verify confidence is NOT a hardcoded 0.95
-        self.assertNotEqual(quality.calculated_confidence, 0.95)
+        self.assertGreater(quality.quality_score, 0.5)
+        self.assertFalse(quality.is_confidence_calibrated)
+        self.assertIsNone(quality.calibrated_confidence)
+        # Verify quality score is NOT a hardcoded constant
+        self.assertNotEqual(quality.quality_score, 0.95)
 
     # -------------------------------------------------------------------------
     # Criterion 2: Image without lines (blank image)
@@ -133,6 +137,9 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
     # -------------------------------------------------------------------------
     # Criterion 8: Trajectory exceeding workspace flagged by Safety
     # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Criterion 8: Trajectory exceeding workspace flagged by Safety
+    # -------------------------------------------------------------------------
     def test_criterion_8_workspace_violation_flagged_by_safety(self):
         rgb_path = TEST_DATA_DIR / "curve_rgb.png"
         depth_path = TEST_DATA_DIR / "curve_depth.npy"
@@ -143,18 +150,51 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         depth = np.load(str(depth_path))
 
+        # Part A: In-bounds trajectory (curve_rgb.png with normal calibration)
         metric_result, _ = self.adapter.process_rgbd(rgb, depth, self.calibration)
         self.assertEqual(metric_result.units, "m")
         self.assertEqual(metric_result.coordinate_frame, "workpiece_m")
 
         # Run through Six-Module Closed Loop Harness
-        run_res = self.harness.run(metric_result, run_id="criterion-8-run")
+        run_res = self.harness.run(metric_result, run_id="criterion-8-in-bounds")
         self.assertEqual(run_res.stage_records[0].status, PipelineStatus.ACCEPTED)
         self.assertEqual(run_res.stage_records[1].status, PipelineStatus.ACCEPTED)
         self.assertEqual(run_res.stage_records[2].status, PipelineStatus.ACCEPTED)
-        # Safety must enforce Gate B and check workspace
+        # Safety must enforce Gate B
         self.assertEqual(run_res.stage_records[3].status, PipelineStatus.BLOCKED)
         self.assertIn("STRICT_GATE_B_BLOCKED", run_res.stage_records[3].reason_codes)
+        # In-bounds trajectory must NOT contain any WORKSPACE_VIOLATION
+        in_bounds_violations = [
+            r for r in run_res.stage_records[3].reason_codes if "WORKSPACE_VIOLATION" in r
+        ]
+        self.assertEqual(
+            in_bounds_violations,
+            [],
+            f"In-bounds trajectory must not contain WORKSPACE_VIOLATION, got: {in_bounds_violations}",
+        )
+
+        # Part B: Out-of-bounds trajectory (artificially shifted camera transform)
+        oob_transform = np.eye(4)
+        oob_transform[0, 3] = 5.0  # Shift X by 5.0m, far beyond workspace_max (0.6, 0.5, 1.0)
+        oob_calibration = CameraCalibration(
+            fx=450.0,
+            fy=450.0,
+            cx=240.0,
+            cy=180.0,
+            camera_to_world=oob_transform,
+            calibration_status="SYNTHETIC_TEST_ONLY",
+            calibration_id="oob-synthetic-cal",
+        )
+        oob_metric_result, _ = self.adapter.process_rgbd(rgb, depth, oob_calibration)
+        run_res_oob = self.harness.run(oob_metric_result, run_id="criterion-8-oob")
+        self.assertEqual(run_res_oob.stage_records[3].status, PipelineStatus.BLOCKED)
+        oob_violations = [
+            r for r in run_res_oob.stage_records[3].reason_codes if "WORKSPACE_VIOLATION" in r
+        ]
+        self.assertTrue(
+            len(oob_violations) > 0,
+            "Safety validation must explicitly record WORKSPACE_VIOLATION for out-of-bounds trajectory",
+        )
 
     # -------------------------------------------------------------------------
     # Criterion 9: Safety rejects execution, but audit trail is complete
@@ -175,6 +215,157 @@ class TestRGBPerceptionAdapter(unittest.TestCase):
         self.assertFalse(run_res.execution_authorized)
         self.assertEqual(run_res.stage_records[5].stage.value, "DATA_LOGGING")
         self.assertEqual(run_res.stage_records[5].status, PipelineStatus.ACCEPTED)
+
+    # -------------------------------------------------------------------------
+    # Criterion 10: Invalid depth pixels rejected without fallback (No 0.5m)
+    # -------------------------------------------------------------------------
+    def test_depth_invalid_pixels_rejected_without_fallback(self):
+        rgb_path = TEST_DATA_DIR / "curve_rgb.png"
+        if not rgb_path.exists():
+            self.skipTest("curve_rgb.png not found")
+
+        bgr = cv2.imread(str(rgb_path))
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+        # Create depth with zeros, NaN, and negative numbers across the middle lines
+        corrupted_depth = np.full((360, 480), 0.5, dtype=float)
+        # Corrupt central region where curves pass through
+        corrupted_depth[100:250, :] = 0.0  # zero depth
+        corrupted_depth[50:80, :] = np.nan   # NaN depth
+        corrupted_depth[260:280, :] = -1.0 # negative depth
+
+        res, quality = self.adapter.process_rgbd(rgb, corrupted_depth, self.calibration)
+
+        # Must reject metric projection for lines suffering unresolved depth gap / low ratio
+        self.assertEqual(res.left.observation_status, ObservationStatus.INVALID)
+        self.assertFalse(res.left.verified)
+        self.assertEqual(len(res.left.points), 0)
+        self.assertTrue(
+            "INVALID_DEPTH_DATA" in quality.diagnostics or "UNRESOLVED_DEPTH_GAP" in quality.diagnostics,
+            f"Expected depth diagnostics, got: {quality.diagnostics}",
+        )
+        # Verify no 3D points fabricated with fallback constant 0.5
+        self.assertEqual(len(res.left.points), 0)
+        self.assertEqual(len(res.right.points), 0)
+
+    # -------------------------------------------------------------------------
+    # Criterion 11: Timestamp desynchronization rejected
+    # -------------------------------------------------------------------------
+    def test_timestamp_desync_rejected(self):
+        rgb = np.zeros((360, 480, 3), dtype=np.uint8)
+        depth = np.full((360, 480), 0.5, dtype=float)
+
+        # Delta = 0.010s > max_sync_delta_s (0.005s) -> Must raise ValueError
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(
+                rgb,
+                depth,
+                self.calibration,
+                rgb_timestamp=100.000,
+                depth_timestamp=100.010,
+                max_sync_delta_s=0.005,
+            )
+        self.assertIn("TIMESTAMP_DESYNC", str(ctx.exception))
+
+        # Synchronized within tolerance (delta = 0.002s <= 0.005s) -> No desync error
+        res, quality = self.adapter.process_rgbd(
+            rgb,
+            depth,
+            self.calibration,
+            rgb_timestamp=100.000,
+            depth_timestamp=100.002,
+            max_sync_delta_s=0.005,
+        )
+        self.assertNotIn("TIMESTAMP_DESYNC", str(quality.diagnostics))
+
+    # -------------------------------------------------------------------------
+    # Criterion 12: Unregistered RGB-D frame rejected
+    # -------------------------------------------------------------------------
+    def test_rgb_depth_unregistered_rejected(self):
+        rgb = np.zeros((360, 480, 3), dtype=np.uint8)
+        depth = np.full((360, 480), 0.5, dtype=float)
+
+        # Direct kwargs call
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(
+                rgb,
+                depth,
+                self.calibration,
+                rgb_depth_registered=False,
+            )
+        self.assertIn("UNREGISTERED_RGBD", str(ctx.exception))
+
+        # With RGBDFrame object
+        frame = RGBDFrame(
+            rgb=rgb,
+            depth=depth,
+            calibration=self.calibration,
+            rgb_depth_registered=False,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.process_rgbd(frame)
+        self.assertIn("UNREGISTERED_RGBD", str(ctx.exception))
+
+    # -------------------------------------------------------------------------
+    # Criterion 13: Distinguish VERIFIED vs SYNTHETIC_TEST_ONLY calibration
+    # -------------------------------------------------------------------------
+    def test_calibration_status_synthetic_vs_verified(self):
+        rgb_path = TEST_DATA_DIR / "curve_rgb.png"
+        depth_path = TEST_DATA_DIR / "curve_depth.npy"
+        if not rgb_path.exists() or not depth_path.exists():
+            self.skipTest("test_data files not found")
+
+        bgr = cv2.imread(str(rgb_path))
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        depth = np.load(str(depth_path))
+
+        # 1. SYNTHETIC_TEST_ONLY
+        res_synthetic, _ = self.adapter.process_rgbd(rgb, depth, self.calibration)
+        self.assertEqual(res_synthetic.calibration_status, "SYNTHETIC_TEST_ONLY")
+        self.assertEqual(res_synthetic.calibration_id, "unit-test-synthetic-cal")
+        self.assertTrue(
+            any("calibration_status:SYNTHETIC_TEST_ONLY" in ref for ref in res_synthetic.left.point_provenance[0].source_references)
+        )
+
+        # 2. VERIFIED
+        verified_cal = CameraCalibration(
+            fx=450.0,
+            fy=450.0,
+            cx=240.0,
+            cy=180.0,
+            camera_to_world=np.eye(4),
+            calibration_status="VERIFIED",
+            calibration_id="isaac-sim-verified-cam-001",
+        )
+        res_verified, _ = self.adapter.process_rgbd(rgb, depth, verified_cal)
+        self.assertEqual(res_verified.calibration_status, "VERIFIED")
+        self.assertEqual(res_verified.calibration_id, "isaac-sim-verified-cam-001")
+        self.assertTrue(
+            any("calibration_status:VERIFIED" in ref for ref in res_verified.left.point_provenance[0].source_references)
+        )
+
+    # -------------------------------------------------------------------------
+    # Criterion 14: Quality score is heuristic, uncalibrated confidence
+    # -------------------------------------------------------------------------
+    def test_quality_score_and_uncalibrated_confidence(self):
+        rgb_path = TEST_DATA_DIR / "curve_rgb.png"
+        depth_path = TEST_DATA_DIR / "curve_depth.npy"
+        if not rgb_path.exists() or not depth_path.exists():
+            self.skipTest("test_data files not found")
+
+        bgr = cv2.imread(str(rgb_path))
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        depth = np.load(str(depth_path))
+
+        res, quality = self.adapter.process_rgbd(rgb, depth, self.calibration)
+        # Quality score exists and is bounded in (0, 1]
+        self.assertGreater(quality.quality_score, 0.5)
+        self.assertLessEqual(quality.quality_score, 1.0)
+        # Confidence is explicitly marked as NOT statistically calibrated
+        self.assertFalse(quality.is_confidence_calibrated)
+        self.assertIsNone(quality.calibrated_confidence)
+        # Backward compatibility alias works
+        self.assertEqual(quality.calculated_confidence, quality.quality_score)
 
 
 if __name__ == "__main__":
