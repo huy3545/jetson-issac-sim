@@ -10,6 +10,7 @@ Verifies:
 7. Audit chain verification (verify_audit_chain) detects tampering and deletions.
 8. OfflineCameraFileLoader loads session from disk, enforces Zero-Trust calibration, and exports JSON report.
 """
+from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -307,7 +308,7 @@ class TestOfflineCameraReplay(unittest.TestCase):
                 "session_id": "disk-test-session",
                 "stream_id": "disk-camera-01",
                 "clock_domain": "camera_clock",
-                "source_type": "OFFLINE_ISAAC_EXPORT",
+                "source_type": "OFFLINE_SYNTHETIC",
                 "calibration": {
                     "fx": 450.0,
                     "fy": 450.0,
@@ -346,6 +347,7 @@ class TestOfflineCameraReplay(unittest.TestCase):
 
             self.assertEqual(len(contracts), 2)
             self.assertEqual(manifest.stream_id, "disk-camera-01")
+            self.assertEqual(contracts[0].source_type, "OFFLINE_SYNTHETIC")
             self.assertIsNotNone(contracts[0].rgb_image)
             self.assertIsNotNone(contracts[0].depth_map)
 
@@ -367,6 +369,8 @@ class TestOfflineCameraReplay(unittest.TestCase):
             self.assertEqual(data["total_frames"], 2)
             self.assertTrue(data["audit_chain_valid"])
             self.assertEqual(len(data["audit_events"]), 2)
+            self.assertIn("final_session_hash", data)
+            self.assertEqual(data["final_session_hash"], report.final_session_hash)
 
     # -------------------------------------------------------------------------
     # Test 9: Zero-Trust calibration blocks unverified VERIFIED claims
@@ -377,7 +381,7 @@ class TestOfflineCameraReplay(unittest.TestCase):
             cv2.imwrite(str(tmp_dir / "frame_0000_rgb.png"), cv2.cvtColor(self.sample_rgb, cv2.COLOR_RGB2BGR))
             np.save(str(tmp_dir / "frame_0000_depth.npy"), self.sample_depth)
 
-            # Manifest falsely claims "VERIFIED" without being registered
+            # Manifest falsely claims "VERIFIED" without evidence
             manifest_content = {
                 "session_id": "zero-trust-session",
                 "stream_id": "disk-camera-01",
@@ -419,26 +423,287 @@ class TestOfflineCameraReplay(unittest.TestCase):
             res = strict_replay.replay_frame(contracts_unreg[0])
             self.assertEqual(res.status, "VISION_BLOCKED")
 
-            # 2. Officially registered in registry -> accepted as VERIFIED
-            registry = VerifiedCalibrationRegistry()
-            registry.register(
+            # 2. Registered WITHOUT evidence hash -> degraded to REGISTERED with warning
+            registry_no_hash = VerifiedCalibrationRegistry()
+            registry_no_hash.register(
                 calibration_id="unregistered-cal-id",
                 fx=450.0,
                 fy=450.0,
                 cx=240.0,
                 cy=180.0,
                 camera_to_world=np.eye(4),
+                verification_evidence_hash=None,
             )
-            loader_reg = OfflineCameraFileLoader(registry=registry)
-            _, contracts_reg = loader_reg.load_session(tmp_dir)
-            self.assertEqual(contracts_reg[0].calibration.calibration_status, "VERIFIED")
-            self.assertNotIn("calibration_warning", contracts_reg[0].metadata)
+            loader_reg_only = OfflineCameraFileLoader(registry=registry_no_hash)
+            _, contracts_reg_only = loader_reg_only.load_session(tmp_dir)
+            self.assertEqual(contracts_reg_only[0].calibration.calibration_status, "REGISTERED")
+            self.assertEqual(
+                contracts_reg_only[0].metadata.get("calibration_warning"),
+                "UNVERIFIED_CALIBRATION_CLAIM",
+            )
+            strict_replay.reset_stream_state()
+            res_reg_only = strict_replay.replay_frame(contracts_reg_only[0])
+            self.assertEqual(res_reg_only.status, "VISION_BLOCKED")
+
+            # 3. Registered WITH valid verification_evidence_hash -> accepted as VERIFIED
+            registry_verified = VerifiedCalibrationRegistry()
+            registry_verified.register(
+                calibration_id="unregistered-cal-id",
+                fx=450.0,
+                fy=450.0,
+                cx=240.0,
+                cy=180.0,
+                camera_to_world=np.eye(4),
+                verification_evidence_hash="isaac_sim_usd_calibration_sha256_hash",
+            )
+            loader_ver = OfflineCameraFileLoader(registry=registry_verified)
+            _, contracts_ver = loader_ver.load_session(tmp_dir)
+            self.assertEqual(contracts_ver[0].calibration.calibration_status, "VERIFIED")
+            self.assertNotIn("calibration_warning", contracts_ver[0].metadata)
 
             # When allow_synthetic_dry_run=False, legitimately verified calibration passes
             strict_replay.reset_stream_state()
-            res_reg = strict_replay.replay_frame(contracts_reg[0])
-            self.assertEqual(res_reg.status, "ACCEPTED")
+            res_ver = strict_replay.replay_frame(contracts_ver[0])
+            self.assertEqual(res_ver.status, "ACCEPTED")
+
+    # -------------------------------------------------------------------------
+    # Test 10: Audit chain tail-truncation protection
+    # -------------------------------------------------------------------------
+    def test_10_audit_chain_tail_truncation_protection(self):
+        frames = [
+            CameraFrameContract(
+                sequence_index=i,
+                frame_id=f"frame_{i:04d}",
+                rgb_image=self.sample_rgb,
+                depth_map=self.sample_depth,
+                rgb_timestamp=0.033 * i,
+                depth_timestamp=0.033 * i,
+                rgb_depth_registered=True,
+                calibration=self.calibration,
+                source_type="SYNTHETIC_TEST",
+            )
+            for i in range(3)
+        ]
+        replay = OfflineCameraReplay(allow_synthetic_dry_run=True)
+        report = replay.replay_stream(frames, session_id="tail-truncation-test")
+
+        # Clean report passes verification
+        self.assertTrue(verify_audit_chain(report))
+        self.assertTrue(verify_audit_chain(report, expected_total_frames=3))
+
+        # Expected total frames mismatch returns False
+        self.assertFalse(verify_audit_chain(report, expected_total_frames=2))
+        self.assertFalse(verify_audit_chain(report, expected_total_frames=4))
+
+        # Attacker drops last event but leaves total_frames=3
+        tampered_events = report.audit_events[:-1]
+        tampered_hashes = report.audit_trail_hashes[:-1]
+        tampered_report_1 = replace(report, audit_events=tampered_events, audit_trail_hashes=tampered_hashes)
+        self.assertFalse(verify_audit_chain(tampered_report_1))
+
+        # Attacker also changes total_frames=2 to match list length
+        # But final_session_hash was calculated with total_frames=3 and last hash of frame 2!
+        tampered_report_2 = replace(
+            report,
+            total_frames=2,
+            audit_events=tampered_events,
+            audit_trail_hashes=tampered_hashes,
+        )
+        self.assertFalse(verify_audit_chain(tampered_report_2))
+
+        # Attacker tampers final_session_hash directly
+        tampered_report_3 = replace(report, final_session_hash="tampered_final_hash_value")
+        self.assertFalse(verify_audit_chain(tampered_report_3))
+
+        # Negative total frames rejected
+        self.assertFalse(verify_audit_chain(replace(report, total_frames=-1)))
+
+        # Empty session handling
+        empty_report = replace(
+            report,
+            total_frames=0,
+            audit_events=(),
+            audit_trail_hashes=(),
+            final_session_hash="EMPTY_SESSION",
+        )
+        self.assertTrue(verify_audit_chain(empty_report))
+        self.assertFalse(verify_audit_chain(replace(empty_report, final_session_hash="INVALID_EMPTY")))
+        self.assertFalse(verify_audit_chain(replace(report, total_frames=1, audit_events=())))
+
+    # -------------------------------------------------------------------------
+    # Test 11: Manifest strict boolean and numeric parsing
+    # -------------------------------------------------------------------------
+    def test_11_manifest_strict_boolean_and_numeric_parsing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            cv2.imwrite(str(tmp_dir / "frame_0000_rgb.png"), cv2.cvtColor(self.sample_rgb, cv2.COLOR_RGB2BGR))
+            np.save(str(tmp_dir / "frame_0000_depth.npy"), self.sample_depth)
+
+            base_manifest = {
+                "session_id": "type-test-session",
+                "stream_id": "camera-01",
+                "calibration": {
+                    "fx": 450.0,
+                    "fy": 450.0,
+                    "cx": 240.0,
+                    "cy": 180.0,
+                    "camera_to_world": np.eye(4).tolist(),
+                    "calibration_status": "SYNTHETIC_TEST_ONLY",
+                },
+                "frames": [
+                    {
+                        "sequence_index": 0,
+                        "frame_id": "frame_0000",
+                        "rgb_file": "frame_0000_rgb.png",
+                        "depth_file": "frame_0000_depth.npy",
+                        "rgb_timestamp": 0.0,
+                        "depth_timestamp": 0.0,
+                        "rgb_depth_registered": "false",  # Invalid string boolean!
+                    }
+                ],
+            }
+            loader = OfflineCameraFileLoader()
+
+            # 1. String "false" for rgb_depth_registered is rejected
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(base_manifest, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("INVALID_MANIFEST_BOOLEAN_TYPE", str(ctx.exception))
+
+            # 2. Integer 0 for rgb_depth_registered is rejected
+            base_manifest["frames"][0]["rgb_depth_registered"] = 0
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(base_manifest, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("INVALID_MANIFEST_BOOLEAN_TYPE", str(ctx.exception))
+
+            # 3. String numeric for fx is rejected
+            base_manifest["frames"][0]["rgb_depth_registered"] = True
+            base_manifest["calibration"]["fx"] = "450.0"
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(base_manifest, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("INVALID_MANIFEST_NUMERIC_TYPE", str(ctx.exception))
+
+            # 4. Boolean for rgb_timestamp is rejected
+            base_manifest["calibration"]["fx"] = 450.0
+            base_manifest["frames"][0]["rgb_timestamp"] = True
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(base_manifest, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("INVALID_MANIFEST_NUMERIC_TYPE", str(ctx.exception))
+
+    # -------------------------------------------------------------------------
+    # Test 12: File loader rejects path traversal and symlinks
+    # -------------------------------------------------------------------------
+    def test_12_file_loader_path_traversal_and_symlinks_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            loader = OfflineCameraFileLoader()
+
+            # 1. Path traversal with ..
+            manifest_traversal = {
+                "session_id": "traversal-session",
+                "stream_id": "camera-01",
+                "frames": [
+                    {
+                        "sequence_index": 0,
+                        "frame_id": "frame_0000",
+                        "rgb_file": "../outside.png",
+                        "depth_file": "frame_0000_depth.npy",
+                        "rgb_timestamp": 0.0,
+                        "depth_timestamp": 0.0,
+                        "rgb_depth_registered": True,
+                    }
+                ],
+            }
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(manifest_traversal, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("PATH_TRAVERSAL_REJECTED", str(ctx.exception))
+
+            # 2. Absolute path
+            manifest_traversal["frames"][0]["rgb_file"] = "/etc/passwd"
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(manifest_traversal, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("PATH_TRAVERSAL_REJECTED", str(ctx.exception))
+
+            # 3. Symlink detected
+            real_file = tmp_dir / "real_file.png"
+            cv2.imwrite(str(real_file), cv2.cvtColor(self.sample_rgb, cv2.COLOR_RGB2BGR))
+            symlink_file = tmp_dir / "symlink_file.png"
+            symlink_file.symlink_to(real_file)
+
+            manifest_traversal["frames"][0]["rgb_file"] = "symlink_file.png"
+            with open(tmp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(manifest_traversal, f, indent=2)
+
+            with self.assertRaises(ValueError) as ctx:
+                loader.load_session(tmp_dir)
+            self.assertIn("PATH_TRAVERSAL_REJECTED", str(ctx.exception))
+
+    # -------------------------------------------------------------------------
+    # Test 13: VerifiedCalibrationRegistry distinguishes REGISTERED vs VERIFIED
+    # -------------------------------------------------------------------------
+    def test_13_verified_calibration_registry_status_distinction(self):
+        registry = VerifiedCalibrationRegistry()
+
+        # 1. Register without evidence hash -> REGISTERED
+        status_reg = registry.register(
+            calibration_id="cal_unverified_model",
+            fx=400.0,
+            fy=400.0,
+            cx=200.0,
+            cy=150.0,
+            camera_to_world=np.eye(4),
+            verification_evidence_hash=None,
+        )
+        self.assertEqual(status_reg, "REGISTERED")
+        self.assertEqual(
+            registry.get_status("cal_unverified_model", 400.0, 400.0, 200.0, 150.0, np.eye(4)),
+            "REGISTERED",
+        )
+        self.assertFalse(registry.is_verified("cal_unverified_model", 400.0, 400.0, 200.0, 150.0, np.eye(4)))
+
+        # 2. Register WITH evidence hash -> VERIFIED
+        status_ver = registry.register(
+            calibration_id="cal_verified_usd_stage",
+            fx=400.0,
+            fy=400.0,
+            cx=200.0,
+            cy=150.0,
+            camera_to_world=np.eye(4),
+            verification_evidence_hash="sha256:usd_stage_calibration_evidence_12345",
+        )
+        self.assertEqual(status_ver, "VERIFIED")
+        self.assertEqual(
+            registry.get_status("cal_verified_usd_stage", 400.0, 400.0, 200.0, 150.0, np.eye(4)),
+            "VERIFIED",
+        )
+        self.assertTrue(registry.is_verified("cal_verified_usd_stage", 400.0, 400.0, 200.0, 150.0, np.eye(4)))
+
+        # 3. Parameter mismatch returns None and is not verified
+        self.assertIsNone(
+            registry.get_status("cal_verified_usd_stage", 999.0, 400.0, 200.0, 150.0, np.eye(4))
+        )
+        self.assertFalse(
+            registry.is_verified("cal_verified_usd_stage", 999.0, 400.0, 200.0, 150.0, np.eye(4))
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
+

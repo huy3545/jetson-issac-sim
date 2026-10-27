@@ -23,7 +23,7 @@ class CameraCalibration:
             raise ValueError("camera_to_world phải là ma trận hữu hạn 4x4")
         if not np.allclose(transform[3], [0, 0, 0, 1]):
             raise ValueError("Transform phải có hàng cuối [0, 0, 0, 1]")
-        valid_statuses = {"VERIFIED", "SYNTHETIC_TEST_ONLY", "UNVERIFIED", "INVALID"}
+        valid_statuses = {"VERIFIED", "REGISTERED", "SYNTHETIC_TEST_ONLY", "UNVERIFIED", "INVALID"}
         if self.calibration_status not in valid_statuses:
             raise ValueError(f"calibration_status must be one of {valid_statuses}, got '{self.calibration_status}'")
         if not isinstance(self.calibration_id, str) or not self.calibration_id.strip():

@@ -1,13 +1,12 @@
-"""Offline Camera Replay Bridge V1.3.
+"""Offline Camera Replay Bridge V1.3.1.
 
 Replays recorded camera streams (RGB/Depth) through the 6-module Jetson pipeline
 without requiring live Isaac Sim or ROS 2 nodes.
 
-V1.3 Features:
-- Supports STRICT vs DIAGNOSTIC replay modes for stream-level anomalies.
-- Produces immutable ReplayAuditEvent with cryptographic chaining (previous_audit_hash) for EVERY frame.
+V1.3.1 Hardening:
+- Cryptographic tail-truncation protection via final_session_hash in ReplaySessionReport.
+- verify_audit_chain with strict length, expected_total_frames, 1-to-1 hash checking, and final session hash verification.
 - Guarantees fail-closed security: execution_authorized is NEVER True.
-- Zero-trust audit chain verification (verify_audit_chain).
 """
 from dataclasses import dataclass, field
 import hashlib
@@ -64,7 +63,7 @@ class ReplayFrameResult:
 
 @dataclass(frozen=True)
 class ReplaySessionReport:
-    """Comprehensive summary report of an entire replay session with chained audit trail."""
+    """Comprehensive summary report of an entire replay session with chained audit trail and tail-truncation protection."""
     session_id: str
     stream_id: str
     replay_mode: str
@@ -80,6 +79,7 @@ class ReplaySessionReport:
     audit_trail_hashes: tuple[str, ...] = ()
     audit_events: tuple[ReplayAuditEvent, ...] = ()
     audit_chain_valid: bool = True
+    final_session_hash: str = "EMPTY_SESSION"
     summary: str = ""
 
 
@@ -159,13 +159,42 @@ def compute_audit_record_hash(
     return hasher.hexdigest()
 
 
-def verify_audit_chain(report: ReplaySessionReport) -> bool:
-    """Verify cryptographic chaining integrity of all audit events in a report."""
-    if not report.audit_events:
-        return True
+def compute_final_session_hash(session_id: str, total_frames: int, last_audit_record_hash: str | None) -> str:
+    """Compute final session hash locking the chain against tail-truncation."""
+    if total_frames <= 0 or not last_audit_record_hash:
+        return "EMPTY_SESSION"
+    hasher = hashlib.sha256()
+    hasher.update(f"{session_id}{total_frames}{last_audit_record_hash}".encode("utf-8"))
+    return hasher.hexdigest()
 
+
+def verify_audit_chain(report: ReplaySessionReport, expected_total_frames: int | None = None) -> bool:
+    """Verify cryptographic chaining integrity of all audit events in a report with tail-truncation protection."""
+    # 1. Total frames boundary checks
+    if report.total_frames < 0:
+        return False
+
+    if len(report.audit_events) != report.total_frames or len(report.audit_trail_hashes) != report.total_frames:
+        return False
+
+    if expected_total_frames is not None and len(report.audit_events) != expected_total_frames:
+        return False
+
+    # 2. Empty session handling
+    if report.total_frames == 0:
+        return report.final_session_hash == "EMPTY_SESSION"
+
+    # If total_frames > 0, audit_events MUST NOT be empty
+    if not report.audit_events:
+        return False
+
+    # 3. Step-by-step cryptographic chain verification
     expected_prev = "GENESIS"
-    for event in report.audit_events:
+    for i, event in enumerate(report.audit_events):
+        # 1-to-1 match with audit_trail_hashes
+        if event.audit_record_hash != report.audit_trail_hashes[i]:
+            return False
+
         if event.previous_audit_hash != expected_prev:
             return False
 
@@ -187,6 +216,13 @@ def verify_audit_chain(report: ReplaySessionReport) -> bool:
             return False
 
         expected_prev = event.audit_record_hash
+
+    # 4. Final session hash verification (protects against removing events from the tail)
+    expected_final_hash = compute_final_session_hash(
+        report.session_id, report.total_frames, report.audit_events[-1].audit_record_hash
+    )
+    if report.final_session_hash != expected_final_hash:
+        return False
 
     return True
 
@@ -354,8 +390,8 @@ class OfflineCameraReplay:
 
         # Check calibration status anomaly
         if frame.calibration is not None:
-            if frame.calibration.calibration_status == "SYNTHETIC_TEST_ONLY":
-                anomalies.append("CALIBRATION_SYNTHETIC_TEST_ONLY")
+            if frame.calibration.calibration_status in ("SYNTHETIC_TEST_ONLY", "REGISTERED"):
+                anomalies.append(f"CALIBRATION_{frame.calibration.calibration_status}")
         else:
             anomalies.append("MISSING_CALIBRATION")
             status = "CONTRACT_REJECTED"
@@ -639,6 +675,9 @@ class OfflineCameraReplay:
             f"Execution authorized: NEVER (Gate B Fail-Closed)."
         )
 
+        last_hash = audit_events[-1].audit_record_hash if audit_events else None
+        final_hash = compute_final_session_hash(session_id, len(frames), last_hash)
+
         report = ReplaySessionReport(
             session_id=session_id,
             stream_id=stream_id,
@@ -655,6 +694,7 @@ class OfflineCameraReplay:
             audit_trail_hashes=tuple(audit_hashes),
             audit_events=tuple(audit_events),
             audit_chain_valid=True,
+            final_session_hash=final_hash,
             summary=summary,
         )
 
